@@ -132,6 +132,13 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
         </div>
         <div id="textBox" hidden>
           <p class="hint">22 שורות, 713 אותיות, בגופן סת"ם אשכנזי (Stam Ashkenaz CLM). הגופן הוא קירוב לכתב בית יוסף: צורות האותיות והתגים לא אושרו כ"בית יוסף". הטקסט המלא להגהה מופיע מתחת לתצוגה המקדימה.</p>
+          <label class="file" for="fontFile" style="margin-block-start:8px">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4M6 20 12 4l6 16M16 20h4M8.5 14h7"/></svg>
+            <span id="fontFileLbl">גופן משלך: TTF / OTF / WOFF (לא חובה)</span>
+            <input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2">
+          </label>
+          <p class="hash" id="fontHash" hidden></p>
+          <p class="msg err" id="fontErr" hidden></p>
           <label class="f" style="grid-template-columns:auto 1fr;align-items:center;gap:8px;margin-block-start:8px"><input type="checkbox" id="bigLetters" style="width:20px;height:20px"><span style="color:var(--ink)">ע' ו-ד' רבתי בשורה הראשונה (לפי מנהג)</span></label>
         </div>
         <div id="imgBox" hidden>

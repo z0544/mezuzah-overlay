@@ -16,7 +16,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   const TEX_MAX = 2048;
   const TEXT_SHA256 = 'a74a44b7c1fe7bb6d423ccada6ad47b33de902c7a0641ed88e8854a4304b0db4';
   const FONT_FAMILY = 'StamAshkenazCLM';
-  const textState = { ready: false, error: '', hash: '', r: 0 };
+  const textState = { ready: false, error: '', hash: '', r: 0, userFont: null };
 
   // ---------- state ----------
   const S = {
@@ -83,11 +83,17 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   // text mode: letter size follows the width (longest line flush with one-yod spacing); returns p = letter/line-step
   // text mode: letter height comes from the rows (גובה אות %), letter width is scaled so the longest
   // line reaches the edge with one-yod spacing (STaM letters are wider than the font's)
+  // text mode: letters keep the font's own proportions (no horizontal scaling, so stroke widths and angles
+  // stay exactly as designed). Letter size is set by the width: the longest line, with one-yod spacing,
+  // reaches the edge. The row spacing then follows from the height.
   function textSize() {
-    const p = S.letterPct / 100, n = TEXT.lines.length - 1;
-    const body = p * heightCm() / (n + p); // cm
-    const k = textState.r ? body / (textState.r * blockW()) : 1; // r = body/widest at k=1
-    return { p, mm: body * 10, k, kc: Math.min(1.8, Math.max(0.6, k)) };
+    const n = TEXT.lines.length - 1, Hb = heightCm();
+    if (!textState.r) return { p: S.letterPct / 100, raw: S.letterPct / 100, mm: 0 };
+    let body = textState.r * blockW(), step = (Hb - body) / n;
+    const raw = body / step;
+    let p = raw;
+    if (raw > 0.85) { p = 0.85; step = Hb / (n + p); body = p * step; } // too tight: smaller letters, lines filled by dilation
+    return { p, raw, mm: body * 10 };
   }
 
   // ---------- template drawing (shared by preview and XR texture) ----------
@@ -169,82 +175,155 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   }
 
   // ---------- mezuzah text (STaM font) ----------
-  // STaM layout rules implemented here:
-  //  * letters hang from the sirtut line;
-  //  * the space between words is exactly one yod;
-  //  * every line reaches the left edge exactly (nothing past the margin); the line is filled only by
-  //    widening the dilatable letters א ה ל ת ם, nearest the end of the line first, at most ×2 each;
+  // Layout rules:
+  //  * every letter is drawn exactly as the font designs it (same size, stroke widths, angles);
+  //  * letters hang from the sirtut line; the space between words is exactly one yod;
+  //  * every line reaches the left edge and nothing passes it. A line is filled only by dilating
+  //    ה ת ם (and א ל when their shape allows it) the way a scribe does: the horizontal stroke is
+  //    lengthened while legs, neck and tagin keep their shape. Letters nearest the end of the line first,
+  //    equal shares, at most +1 letter width each; never inside a holy name;
   //  * setumah (common custom): line 6 ends ~3 letters short, line 7 opens with a 9-letter space;
   //  * line 22 holds only "על הארץ", at its start.
-  const DILATABLE = new Set(['א', 'ה', 'ל', 'ת', 'ם']);
-  const MAX_DILATE = 1.8;
-  const maskCache = { key: '', c: null };
-  function layoutText(x, Wpx, sxIn) {
+  const DILATABLE = ['א', 'ה', 'ל', 'ת', 'ם'];
+  const MAX_EXTRA = 1.0;
+  // names that are not erased: their letters are never dilated (אלהים in 11:16 "אלהים אחרים" is not holy)
+  const HOLY = new Set(['יהוה', 'אלהינו', 'אלהיך', 'אלהיכם']);
+  const sliceCache = new Map();
+  // find a vertical slice of the glyph that crosses only horizontal strokes (same ink runs over a span)
+  function glyphSlice(ch, px) {
+    const key = ch + '|' + fontFamily() + '|' + Math.round(px);
+    if (sliceCache.has(key)) return sliceCache.get(key);
+    const m = document.createElement('canvas').getContext('2d'); m.font = `${px}px "${fontFamily()}"`;
+    const adv = m.measureText(ch).width, pad = Math.ceil(px * 0.4);
+    const G = document.createElement('canvas'); G.width = Math.ceil(adv + 2 * pad); G.height = Math.ceil(px * 1.8);
+    const g = G.getContext('2d', { willReadFrequently: true });
+    g.font = m.font; g.direction = 'rtl'; g.textAlign = 'right'; g.textBaseline = 'alphabetic'; g.fillStyle = '#fff';
+    const O = G.width - pad, base = Math.round(px * 1.25);
+    g.fillText(ch, O, base);
+    const d = g.getImageData(0, 0, G.width, G.height).data;
+    const runs = (x) => { const r = []; let st = -1; for (let y = 0; y < G.height; y++) { const on = d[(y * G.width + x) * 4 + 3] > 110; if (on && st < 0) st = y; if (!on && st >= 0) { r.push([st, y]); st = -1; } } if (st >= 0) r.push([st, G.height]); return r; };
+    const tol = Math.max(1, px * 0.025), same = (a, b) => a.length === b.length && a.every((r, i) => Math.abs(r[0] - b[i][0]) <= tol && Math.abs(r[1] - b[i][1]) <= tol);
+    const x0 = Math.round(O - adv * 0.85), x1 = Math.round(O - adv * 0.15); // stay away from the legs at both sides
+    let best = null, cur = null;
+    for (let x = x0; x <= x1; x++) {
+      const r = runs(x);
+      const ok = r.length >= 1 && r.length <= 2 && r.every(([a, b]) => b - a < px * 0.3);
+      if (ok && cur && same(cur.sig, r)) { cur.end = x; }
+      else { cur = ok ? { start: x, end: x, sig: r } : null; }
+      if (cur && (!best || cur.end - cur.start > best.end - best.start)) best = { ...cur };
+    }
+    const res = best && best.end - best.start >= adv * 0.12 ? { G, O, cx: Math.round((best.start + best.end) / 2), base } : null;
+    sliceCache.set(key, res);
+    return res;
+  }
+
+  function layoutText(x, Wpx, planDilation = true) {
+    const px = parseFloat(x.font);
     const yod = x.measureText('י').width;
     const avg = x.measureText('אבגדהוזחטיכלמנסעפצקרשת').width / 22;
     const BIG = 1.5;
     const SETUMAH = 6, LAST = TEXT.lines.length - 1;
     const isBig = (i, k) => S.bigLetters && i === 0 && (k === 0 || k === 5);
     const cw = {}; const W = (ch) => (cw[ch] ??= x.measureText(ch).width);
-    // char boxes per line: {ch, w, big}
-    const lines = TEXT.lines.map((ws, i) => ws.map((w, k) => [...w].map((ch, ci, arr) => ({ ch, w: W(ch) * (isBig(i, k) && ci === arr.length - 1 ? BIG : 1), big: isBig(i, k) && ci === arr.length - 1, f: 1 }))));
+    const lines = TEXT.lines.map((ws, i) => ws.map((w, k) => [...w].map((ch, ci, arr) => {
+      const big = isBig(i, k) && ci === arr.length - 1;
+      return { ch, w: W(ch) * (big ? BIG : 1), big, e: 0 };
+    })));
     const natural = lines.map((ws, i) => ws.reduce((a, cs) => a + cs.reduce((b, c) => b + c.w, 0), 0) + (ws.length - 1) * yod + (i === SETUMAH ? 9 * avg : 0));
-    const sx = sxIn ?? Math.min(1.8, Math.max(0.6, Wpx / Math.max(...natural.filter((_, i) => i !== LAST))));
     const report = [];
-    lines.forEach((ws, i) => {
+    if (planDilation) lines.forEach((ws, i) => {
       if (i === LAST) { report.push(0); return; }
-      const target = (i === SETUMAH - 1 ? Wpx - 3 * avg * sx : Wpx - (i === SETUMAH ? 9 * avg * sx : 0));
-      const chars = ws.reduce((a, cs) => a + cs.reduce((b, c) => b + c.w, 0), 0) * sx;
-      let R = target - natural[i] * sx + (i === SETUMAH ? 9 * avg * sx : 0);
-      // a scribe writes a short line slightly wider: up to +8% on all letters, then dilates אהלת"ם
-      if (R > 0.5) { const u = Math.min(1.08, 1 + R / chars); ws.forEach((cs) => cs.forEach((c) => { c.u = u; })); R -= chars * (u - 1); }
-      // candidates nearest the end of the line first
+      const target = i === SETUMAH - 1 ? Wpx - 3 * avg : Wpx;
+      let R = target - natural[i];
       const cand = [];
-      for (let k = ws.length - 1; k >= 0; k--) for (let ci = ws[k].length - 1; ci >= 0; ci--) if (DILATABLE.has(ws[k][ci].ch) && !ws[k][ci].big) cand.push(ws[k][ci]);
+      for (let k = ws.length - 1; k >= 0; k--) for (let ci = ws[k].length - 1; ci >= 0; ci--) {
+        if (HOLY.has(TEXT.lines[i][k])) continue;
+        const c = ws[k][ci];
+        if (!c.big && DILATABLE.includes(c.ch) && glyphSlice(c.ch, px)) cand.push(c);
+      }
       if (R > 0.5 && cand.length) {
         let done = false;
-        for (let n = 1; n <= cand.length && !done; n++) {
-          const share = R / n;
-          if (cand.slice(0, n).every((c) => c.w * sx * (c.u || 1) * (MAX_DILATE - 1) >= share)) {
-            cand.slice(0, n).forEach((c) => { c.f = 1 + share / (c.w * sx * (c.u || 1)); }); R = 0; done = true;
+        // prefer many small dilations; allow longer ones only when the line cannot be filled otherwise
+        for (const cap of [MAX_EXTRA, 1.6, 2.2]) {
+          for (let n = 1; n <= cand.length && !done; n++) {
+            const share = R / n;
+            if (cand.slice(0, n).every((c) => c.w * cap >= share)) { cand.slice(0, n).forEach((c) => { c.e = share; }); done = true; }
           }
+          if (done) { R = 0; break; }
         }
-        if (!done) { cand.forEach((c) => { c.f = MAX_DILATE; R -= c.w * sx * (c.u || 1) * (MAX_DILATE - 1); }); }
+        if (!done) cand.forEach((c) => { c.e = c.w * 2.2; R -= c.e; });
       }
       report.push(Math.max(0, R));
     });
-    return { lines, sx, yod, avg, SETUMAH, LAST, report };
+    return { lines, yod, avg, SETUMAH, LAST, report, natural };
+  }
+
+  function drawDilated(x, ch, xr, base, extra, px) {
+    const sl = glyphSlice(ch, px);
+    const { G, O, cx } = sl;
+    const top = base - sl.base; // align baselines
+    const rightW = G.width - cx, leftW = cx;
+    x.drawImage(G, cx, 0, rightW, G.height, xr - (O - cx), top, rightW, G.height);              // right part (as is)
+    x.drawImage(G, cx - 1, 0, 1, G.height, xr - (O - cx) - extra, top, extra + 0.5, G.height);  // lengthened stroke
+    x.drawImage(G, 0, 0, leftW, G.height, xr - (O - cx) - extra - leftW, top, leftW, G.height); // left part (as is)
   }
 
   function textMask(Wpx, Hpx) {
-    const key = [Wpx, Hpx, rowGeom(Hpx).letter.toFixed(3), S.bigLetters].join('|');
+    const key = [Wpx, Hpx, rowGeom(Hpx).letter.toFixed(3), S.bigLetters, fontFamily()].join('|');
     if (maskCache.key === key) return maskCache.c;
     const c = document.createElement('canvas'); c.width = Wpx; c.height = Hpx;
     const x = c.getContext('2d');
     const { step, letter } = rowGeom(Hpx);
-    const font = (px) => `${px}px "${FONT_FAMILY}"`;
-    x.font = font(100);
+    x.font = `100px "${fontFamily()}"`;
     const mh = x.measureText('ה');
     const body = (mh.actualBoundingBoxAscent + mh.actualBoundingBoxDescent) || 70;
-    x.font = font(100 * letter / body); x.direction = 'rtl'; x.textAlign = 'right'; x.textBaseline = 'alphabetic'; x.fillStyle = '#fff';
+    const px = 100 * letter / body;
+    x.font = `${px}px "${fontFamily()}"`; x.direction = 'rtl'; x.textAlign = 'right'; x.textBaseline = 'alphabetic'; x.fillStyle = '#fff';
     const asc = x.measureText('ה').actualBoundingBoxAscent;
     const L = layoutText(x, Wpx);
     L.lines.forEach((ws, i) => {
-      let xr = Wpx - (i === L.SETUMAH ? 9 * L.avg * L.sx : 0);
+      let xr = Wpx - (i === L.SETUMAH ? 9 * L.avg : 0);
       const base = i * step + asc;
       ws.forEach((cs, k) => {
         for (const ch of cs) {
-          x.save(); x.translate(xr, base);
-          if (ch.big) { x.translate(0, -asc); x.scale(L.sx * 1.5, 1.5); x.translate(0, asc); }
-          else x.scale(L.sx * (ch.u || 1) * ch.f, 1);
-          x.fillText(ch.ch, 0, 0); x.restore();
-          xr -= ch.w * L.sx * (ch.u || 1) * ch.f;
+          if (ch.e > 0.5) drawDilated(x, ch.ch, xr, base, ch.e, px);
+          else if (ch.big) { x.save(); x.translate(xr, base - asc); x.scale(1.5, 1.5); x.translate(0, asc); x.fillText(ch.ch, 0, 0); x.restore(); }
+          else x.fillText(ch.ch, xr, base);
+          xr -= ch.w + ch.e;
         }
-        if (k < ws.length - 1) xr -= L.yod * L.sx;
+        if (k < ws.length - 1) xr -= L.yod;
       });
     });
-    Object.assign(maskCache, { key, c, sx: L.sx, gaps: L.report });
+    Object.assign(maskCache, { key, c, gaps: L.report });
     return c;
+  }
+  const maskCache = { key: '', c: null };
+
+  // r = letter body height / longest line width, at the font's own proportions
+  function computeRatio() {
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = `100px "${fontFamily()}"`;
+    const mh = m.measureText('ה');
+    const body = (mh.actualBoundingBoxAscent + mh.actualBoundingBoxDescent) || 70;
+    const L = layoutText(m, 1e9, false);
+    textState.r = body / Math.max(...L.natural.filter((_, i) => i !== L.LAST));
+    maskCache.key = '';
+  }
+  function fontFamily() { return textState.userFont ? textState.userFont.family : FONT_FAMILY; }
+
+  async function loadUserFont(file) {
+    if (!file) return;
+    if (!/\.(ttf|otf|woff2?)$/i.test(file.name)) throw new Error('סוג קובץ לא נתמך. אפשר TTF, OTF, WOFF או WOFF2.');
+    if (file.size > 20 * 1024 * 1024) throw new Error('הקובץ גדול מדי.');
+    const buf = await file.arrayBuffer();
+    const hash = await sha256Hex(buf);
+    const family = 'UserStam' + Date.now();
+    const ff = new FontFace(family, buf);
+    await ff.load(); document.fonts.add(ff);
+    const m = document.createElement('canvas').getContext('2d'); m.font = `100px "${family}"`;
+    if (!(m.measureText('ה').actualBoundingBoxAscent > 1)) throw new Error('בגופן הזה אין אותיות עבריות.');
+    textState.userFont = { family, name: file.name, hash };
+    sliceCache.clear(); computeRatio();
   }
 
   async function initText() {
@@ -257,13 +336,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       textState.hash = h || '';
       const ff = new FontFace(FONT_FAMILY, `url(${stamFontUrl})`);
       await ff.load(); document.fonts.add(ff);
-      const m = document.createElement('canvas').getContext('2d');
-      m.font = `100px "${FONT_FAMILY}"`;
-      const mh = m.measureText('ה');
-      const body = (mh.actualBoundingBoxAscent + mh.actualBoundingBoxDescent) || 70;
-      const L = layoutText(m, 1e9, 1);
-      const nat = L.lines.map((ws, i) => ws.reduce((a, cs) => a + cs.reduce((b, c) => b + c.w, 0), 0) + (ws.length - 1) * L.yod + (i === L.SETUMAH ? 9 * L.avg : 0));
-      textState.r = body / Math.max(...nat.filter((_, i) => i !== L.LAST));
+      computeRatio();
       textState.ready = true;
     } catch (e) {
       textState.error = (e && e.message) || 'טעינת הטקסט נכשלה';
@@ -361,8 +434,9 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     ui.h.disabled = !!imgMode;
     if (imgMode && typing !== ui.h) ui.h.value = outerH();
     document.querySelectorAll('input[name=preset]').forEach((r) => { r.checked = +r.value === S.w; });
-    ui.letterPct.disabled = false;
+    ui.letterPct.disabled = txt;
     const ts = txt ? textSize() : null;
+    if (txt && ts.mm) ui.letterPct.value = Math.round(ts.p * 100);
     const bw = blockW(), bh = heightCm();
     const tooSmall = bw < 2 || bh < 2;
     if (tooSmall) invalid.add('block'); else invalid.delete('block');
@@ -376,9 +450,10 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     const lh = $('letterHint');
     if (txt && ts.mm) {
       lh.hidden = false;
-      const bad = ts.k !== ts.kc;
-      lh.textContent = `גובה אות: ${ts.mm.toFixed(1)} מ"מ · רוחב האותיות: ${Math.round(ts.k * 100)}% מהגופן. הרוחב נקבע כך שהשורה הארוכה מגיעה לקצה כשבין המילים רווח של י'.`
-        + (bad ? (ts.k > ts.kc ? ' השטח רחב מדי ביחס לגובה האות. הגדילו את גובה האות או הקטינו את הרוחב.' : ' השטח צר מדי ביחס לגובה האות. הקטינו את גובה האות או הגדילו את הרוחב.') : '');
+      const bad = ts.raw > 0.85 || ts.raw < 0.45;
+      lh.textContent = `גובה אות: ${ts.mm.toFixed(2)} מ"מ (${Math.round(ts.p * 100)}% מהשורה). גודל האות נקבע לפי הרוחב: האותיות שומרות על הצורה והעובי של הגופן, והשורה הארוכה מגיעה לקצה כשבין המילים רווח של י'.`
+        + (ts.raw > 0.85 ? ' הגובה קצר מדי לרוחב, ולכן האותיות הוקטנו והשורות מתמלאות בהמשכה.' : '')
+        + (ts.raw < 0.45 ? ' יש רווח גדול בין השורות. אפשר להקטין את הגובה.' : '');
       lh.classList.toggle('err', bad);
     } else lh.hidden = true;
     ui.dimW.textContent = bw; ui.dimH.textContent = bh; ui.dimRows.textContent = rowCount();
@@ -445,6 +520,21 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     if (t.type === 'number') { refreshDerived(t); return; } // keep what is being typed
     if (t.name === 'preset') ui.h.value = S.h;
     if (t.name === 'preset') ui.w.value = S.w;
+    syncUI();
+  });
+
+  $('fontFile').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    $('fontErr').hidden = true;
+    try {
+      $('fontFileLbl').textContent = 'טוען…';
+      await loadUserFont(f);
+      $('fontFileLbl').textContent = f.name;
+      $('fontHash').hidden = false; $('fontHash').textContent = 'SHA-256: ' + (textState.userFont.hash || 'לא זמין');
+    } catch (err) {
+      $('fontFileLbl').textContent = 'גופן משלך: TTF / OTF / WOFF (לא חובה)';
+      $('fontErr').textContent = (err && err.message) || 'טעינת הגופן נכשלה.'; $('fontErr').hidden = false;
+    }
     syncUI();
   });
 
@@ -897,6 +987,8 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       r2.render(scene, cam); const url = r2.domElement.toDataURL('image/png'); r2.dispose(); return url;
     },
     text: () => ({ ...textState }),
+    gaps: () => maskCache.gaps,
+    slices: () => Object.fromEntries(DILATABLE.map((c) => [c, !!glyphSlice(c, 120)])),
     state: () => ({ confirm: lock.confirm, locked: lock.locked, step: calib.step, line: S.line, mode: S.mode, opacity: S.opacity, adj: { ...adj }, measured: lock.measured, msg: calib.msg, lost: trackingLost, inXR: !!session }),
   };
 
