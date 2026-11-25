@@ -23,7 +23,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     tpl: 'grid', w: 10, h: 10, rows: 22, letterPct: 55,
     color: '#ff2d55', opacity: 0.6, autoTrim: true,
     img: null,        // { mask: HTMLCanvasElement, aspect, hash, name }
-    mode: 'full', line: 0,
+    mode: 'full', line: 0, bigLetters: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -39,8 +39,8 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   // ---------- persistence (best effort) ----------
   function save() {
     try {
-      const { tpl, w, h, rows, letterPct, color, opacity, autoTrim } = S;
-      localStorage.setItem(STORE_KEY, JSON.stringify({ tpl, w, h, rows, letterPct, color, opacity, autoTrim }));
+      const { tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters } = S;
+      localStorage.setItem(STORE_KEY, JSON.stringify({ tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters }));
     } catch (_) { /* storage unavailable */ }
   }
   function load() {
@@ -52,7 +52,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       S.rows = Math.round(num(v.rows, 1, 60, S.rows)); S.letterPct = num(v.letterPct, 20, 90, S.letterPct);
       S.opacity = num(v.opacity, 0.1, 1, S.opacity);
       if (/^#[0-9a-f]{6}$/i.test(v.color)) S.color = v.color;
-      S.autoTrim = v.autoTrim !== false;
+      S.autoTrim = v.autoTrim !== false; S.bigLetters = v.bigLetters === true;
       if (v.tpl === 'text') S.tpl = 'text'; // image is not persisted
     } catch (_) { /* ignore */ }
   }
@@ -154,7 +154,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   // line 7 opens with a setumah indent of ~9 letters, line 6 and line 22 are not stretched.
   const maskCache = { key: '', c: null };
   function textMask(Wpx, Hpx) {
-    const key = [Wpx, Hpx, S.letterPct].join('|');
+    const key = [Wpx, Hpx, S.letterPct, S.bigLetters].join('|');
     if (maskCache.key === key) return maskCache.c;
     const c = document.createElement('canvas'); c.width = Wpx; c.height = Hpx;
     const x = c.getContext('2d');
@@ -169,21 +169,45 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     const yod = x.measureText('י').width;
     const avg = x.measureText('אבגדהוזחטיכלמנסעפצקרשת').width / 22;
     const indent = 9 * avg;
-    const widths = TEXT.lines.map((l) => l.map((w) => x.measureText(w).width));
+    const BIG = 1.5;
+    const isBig = (i, k) => S.bigLetters && i === 0 && (k === 0 || k === 5); // ע of שמע, ד of אחד
+    const widths = TEXT.lines.map((l, i) => l.map((w, k) => isBig(i, k)
+      ? x.measureText(w.slice(0, -1)).width + x.measureText(w.slice(-1)).width * BIG
+      : x.measureText(w).width));
     const SETUMAH = 6, LAST = TEXT.lines.length - 1; // 0-based: line 7 indent, line 22 short
     const natural = widths.map((ws, i) => ws.reduce((a, b) => a + b, 0) + (ws.length - 1) * yod + (i === SETUMAH ? indent : 0));
     const widest = Math.max(...natural.filter((_, i) => i !== LAST));
     const sx = Math.min(1, Wpx / widest); // squeeze only when the block is too narrow
+    // Setumah (common custom): line 6 ends at most ~3 letters short, line 7 opens with a 9-letter indent.
+    // Lines are filled first by word spacing (yod … 1.6 letters), then by widening the letters.
+    const gapMin = yod * sx, gapMax = 1.6 * avg * sx;
     TEXT.lines.forEach((ws, i) => {
+      const n = ws.length - 1;
       const wsum = widths[i].reduce((a, b) => a + b, 0) * sx;
       const ind = i === SETUMAH ? indent * sx : 0;
-      const justify = i !== LAST && i !== SETUMAH - 1 && ws.length > 1;
-      const gap = justify ? (Wpx - wsum - ind) / (ws.length - 1) : yod * sx;
+      let gap = gapMin, stretch = 1;
+      if (i !== LAST && n > 0) {
+        const target = i === SETUMAH - 1 ? Wpx - 3 * avg * sx : Wpx - ind;
+        const free = target - wsum - gapMin * n;
+        if (free > 0) {
+          gap = Math.min(gapMax, gapMin + free / n);
+          const left = target - wsum - gap * n;
+          stretch = Math.min(1.6, 1 + left / wsum);
+          gap += (target - wsum * stretch - gap * n) / n; // any remainder goes back into spacing
+        }
+      }
       let xr = Wpx - ind;
       const base = i * step + asc;
+      const k2 = sx * stretch;
       ws.forEach((w, k) => {
-        x.save(); x.translate(xr, base); x.scale(sx, 1); x.fillText(w, 0, 0); x.restore();
-        xr -= widths[i][k] * sx + gap;
+        x.save(); x.translate(xr, base); x.scale(k2, 1);
+        if (isBig(i, k)) {
+          const pre = w.slice(0, -1), last = w.slice(-1);
+          x.fillText(pre, 0, 0);
+          x.translate(-x.measureText(pre).width, -asc); x.scale(BIG, BIG); x.translate(0, asc); x.fillText(last, 0, 0); // hangs from the sirtut line
+        } else x.fillText(w, 0, 0);
+        x.restore();
+        xr -= widths[i][k] * k2 + gap;
       });
     });
     Object.assign(maskCache, { key, c, sx });
@@ -276,7 +300,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     invalid.clear(); for (const el of [ui.w, ui.h, ui.rows, ui.letterPct]) { el.style.borderColor = ''; el.setAttribute('aria-invalid', 'false'); }
     ui.w.value = S.w; ui.rows.value = S.rows; ui.letterPct.value = S.letterPct;
     ui.opacity.value = Math.round(S.opacity * 100); ui.opVal.textContent = Math.round(S.opacity * 100) + '%';
-    ui.autoTrim.checked = S.autoTrim;
+    ui.autoTrim.checked = S.autoTrim; $('bigLetters').checked = S.bigLetters;
     document.querySelector(`input[name=tpl][value=${S.tpl}]`).checked = true;
     const col = document.querySelector(`input[name=color][value="${S.color}"]`); if (col) col.checked = true;
     document.querySelectorAll('input[name=preset]').forEach((r) => { r.checked = +r.value === S.w; });
@@ -336,6 +360,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     else if (t === ui.letterPct) { S.letterPct = readNum(ui.letterPct, 20, 90, S.letterPct); }
     else if (t === ui.opacity) { S.opacity = +ui.opacity.value / 100; }
     else if (t === ui.autoTrim) { S.autoTrim = ui.autoTrim.checked; }
+    else if (t.id === 'bigLetters') { S.bigLetters = t.checked; }
     else return;
     save();
     // keep typed value in the field while typing
