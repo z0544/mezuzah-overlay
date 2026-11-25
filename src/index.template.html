@@ -55,6 +55,7 @@ legend{font-weight:700;font-size:15px;margin-block-end:8px;padding:0}
 .seg label{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 8px;font-size:15px;cursor:pointer;border-inline-start:1px solid var(--border);text-align:center}
 .seg label:first-of-type{border-inline-start:0}
 .seg input:checked+label{background:var(--primary);color:var(--primary-ink);font-weight:600}
+.seg input:disabled+label{opacity:.45;cursor:not-allowed}
 .seg input:focus-visible+label{outline:3px solid var(--primary);outline-offset:-3px}
 .m4{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-block:4px 8px}
 .hint.err{color:var(--danger)}
@@ -131,7 +132,14 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
           <input type="radio" name="tpl" id="tplImg" value="image"><label for="tplImg">תמונה</label>
         </div>
         <div id="textBox" hidden>
-          <p class="hint">22 שורות, 713 אותיות, בגופן סת"ם אשכנזי (Stam Ashkenaz CLM). הגופן הוא קירוב לכתב בית יוסף: צורות האותיות והתגים לא אושרו כ"בית יוסף". הטקסט המלא להגהה מופיע מתחת לתצוגה המקדימה.</p>
+          <p class="hint">22 שורות, 713 אותיות. הטקסט המלא להגהה מופיע מתחת לתצוגה המקדימה.</p>
+          <span class="f" style="margin-block-start:8px"><span>גופן</span></span>
+          <div class="seg" role="radiogroup" aria-label="גופן">
+            <input type="radio" name="font" id="fontShlomo" value="shlomo" checked><label for="fontShlomo">שלמה סת"ם</label>
+            <input type="radio" name="font" id="fontClm" value="clm"><label for="fontClm">Stam CLM</label>
+            <input type="radio" name="font" id="fontUser" value="user" disabled><label for="fontUser">משלך</label>
+          </div>
+          <p class="hint">שני שני הגופנים המובנים חינמיים ובכתב סת"ם אשכנזי, וקרובים לבית יוסף, אבל אף אחד מהם לא אושר כבית יוסף. בהשוואה חזותית שלנו "שלמה סת"ם" קרוב יותר: צוואר הל' זקוף, והאותיות מרובעות יותר. לצורת אות מדויקת יותר אפשר לטעון גופן בית יוסף מסחרי.</p>
           <label class="file" for="fontFile" style="margin-block-start:8px">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4M6 20 12 4l6 16M16 20h4M8.5 14h7"/></svg>
             <span id="fontFileLbl">גופן משלך: TTF / OTF / WOFF (לא חובה)</span>
@@ -139,7 +147,7 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
           </label>
           <p class="hash" id="fontHash" hidden></p>
           <p class="msg err" id="fontErr" hidden></p>
-          <label class="f" style="grid-template-columns:auto 1fr;align-items:center;gap:8px;margin-block-start:8px"><input type="checkbox" id="bigLetters" style="width:20px;height:20px"><span style="color:var(--ink)">ע' ו-ד' רבתי בשורה הראשונה (לפי מנהג)</span></label>
+          <label class="f" style="grid-template-columns:auto 1fr;align-items:center;gap:8px;margin-block-start:8px"><input type="checkbox" id="bigLetters" style="width:20px;height:20px"><span style="color:var(--ink)">ע' של "שמע" ו-ד' של "אחד" גדולות (רבתי)</span></label>
         </div>
         <div id="imgBox" hidden>
           <label class="file" for="imgFile">
@@ -260,7 +268,9 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
     </div>
     <p class="hint">גם בלי בקרים: מכוונים את קצה האצבע המורה הימנית לפינה, ומאשרים בצביטה של היד השמאלית. אחרי הנעילה, צביטה של היד השמאלית מעבירה לשורה הבאה, וצביטה ממושכת בשתי הידיים מתחילה כיול מחדש. אם המעקב אבד או שהקסדה אופסה, התבנית מוסתרת עד שהמעקב חוזר או עד כיול מחדש.</p>
   </section>
-  <p class="hint" style="margin-block-start:16px">גופן Stam Ashkenaz CLM © יורם גנת, פרויקט Culmus, ברישיון GNU GPL גרסה 2.</p>
+  <p class="hint" style="margin-block-start:16px">גופנים: Shlomo Stam מאת שלמה אורבך, מבוסס על Ezra SIL © SIL International, ברישיון SIL Open Font License 1.1. רכיב פריסה © Ralph Hancock ו-John Hudson, ברישיון MIT. Stam Ashkenaz CLM © יורם גנת, פרויקט Culmus, ברישיון GNU GPL גרסה 2 עם חריגת גופנים (font exception). קוד המקור: culmus.sourceforge.io.</p>
+  <details class="hint"><summary>רישיון Shlomo Stam (SIL OFL 1.1)</summary><pre id="oflText" style="white-space:pre-wrap;direction:ltr;text-align:left;font-size:12px"></pre></details>
+  <details class="hint"><summary>רישיון Stam Ashkenaz CLM (GPL-2 + font exception)</summary><pre id="clmText" style="white-space:pre-wrap;direction:ltr;text-align:left;font-size:12px"></pre></details>
 </div>
 <script>/*__APP__*/</script>
 </body>

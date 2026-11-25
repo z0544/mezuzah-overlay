@@ -3,6 +3,9 @@
 import * as THREE from 'three';
 import TEXT from './data/mezuzah-text.json';
 import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
+import shlomoFontUrl from './fonts/ShlomoStam.ttf';
+import shlomoOFL from './fonts/ShlomoStam-OFL.txt';
+import clmLicense from './fonts/StamAshkenazCLM-LICENSE.txt';
 
 {
   // ---------- constants ----------
@@ -15,7 +18,10 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   const MODE_LABEL = { full: 'מלא', line: 'שורה נוכחית', off: 'מוסתר' };
   const TEX_MAX = 2048;
   const TEXT_SHA256 = 'a74a44b7c1fe7bb6d423ccada6ad47b33de902c7a0641ed88e8854a4304b0db4';
-  const FONT_FAMILY = 'StamAshkenazCLM';
+  const FONTS = {
+    shlomo: { family: 'ShlomoStam', url: shlomoFontUrl, label: 'Shlomo Stam' },
+    clm: { family: 'StamAshkenazCLM', url: stamFontUrl, label: 'Stam Ashkenaz CLM' },
+  };
   const textState = { ready: false, error: '', hash: '', r: 0, userFont: null };
 
   // ---------- state ----------
@@ -23,7 +29,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     tpl: 'grid', w: 10, h: 10, rows: 22, letterPct: 60,
     color: '#ff2d55', opacity: 0.6, autoTrim: true,
     img: null,        // { mask: HTMLCanvasElement, aspect, hash, name }
-    mode: 'full', line: 0, bigLetters: false,
+    mode: 'full', line: 0, bigLetters: true, font: 'shlomo',
     cal: 'klaf', mt: 4, mb: 4, mr: 6, ml: 3, // calibrate on klaf corners; margins in mm
   };
 
@@ -40,8 +46,8 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   // ---------- persistence (best effort) ----------
   function save() {
     try {
-      const { tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters, cal, mt, mb, mr, ml } = S;
-      localStorage.setItem(STORE_KEY, JSON.stringify({ tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters, cal, mt, mb, mr, ml }));
+      const { tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters, cal, mt, mb, mr, ml, font } = S;
+      localStorage.setItem(STORE_KEY, JSON.stringify({ tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters, cal, mt, mb, mr, ml, font }));
     } catch (_) { /* storage unavailable */ }
   }
   function load() {
@@ -53,7 +59,8 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       S.rows = Math.round(num(v.rows, 1, 60, S.rows)); S.letterPct = num(v.letterPct, 20, 90, S.letterPct);
       S.opacity = num(v.opacity, 0.1, 1, S.opacity);
       if (/^#[0-9a-f]{6}$/i.test(v.color)) S.color = v.color;
-      S.autoTrim = v.autoTrim !== false; S.bigLetters = v.bigLetters === true;
+      S.autoTrim = v.autoTrim !== false; S.bigLetters = v.bigLetters !== false;
+      if (v.font === 'clm') S.font = 'clm';
       if (v.cal === 'block') S.cal = 'block';
       S.mt = num(v.mt, 0, 30, S.mt); S.mb = num(v.mb, 0, 30, S.mb); S.mr = num(v.mr, 0, 30, S.mr); S.ml = num(v.ml, 0, 30, S.ml);
       if (v.tpl === 'text') S.tpl = 'text'; // image is not persisted
@@ -97,8 +104,23 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   }
 
   // ---------- template drawing (shared by preview and XR texture) ----------
-  function drawTemplate(ctx, Wpx, Hpx, { mode = 'full', line = -1 } = {}) {
-    ctx.clearRect(0, 0, Wpx, Hpx);
+  // extra room above the block (fraction of block height) for the large ע/ד, which rise above the first line
+  function padFrac() {
+    if (S.tpl !== 'text' || !S.bigLetters || !textState.ready) return 0;
+    // how far the 1.5× ע / ד rise above a regular letter, measured on the active font (+10% margin)
+    const m = document.createElement('canvas').getContext('2d'); m.font = `100px "${fontFamily()}"`;
+    const asc = m.measureText('ה').actualBoundingBoxAscent || 70;
+    const rise = Math.max(...['ע', 'ד'].map((c) => m.measureText(c).actualBoundingBoxAscent)) * 1.5 - asc;
+    return Math.max(0, rise / asc * 1.1) * (textSize().mm / 10) / heightCm();
+  }
+  function drawTemplate(ctx, Wpx, Hpx, opts = {}) {
+    const pad = opts.pad || 0;
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.save(); ctx.translate(0, pad);
+    drawTemplateInner(ctx, Wpx, Hpx, opts, pad);
+    ctx.restore();
+  }
+  function drawTemplateInner(ctx, Wpx, Hpx, { mode = 'full', line = -1 } = {}, pad = 0) {
     if (mode === 'off') return;
     const { step, letter } = rowGeom(Hpx);
     const lw = Math.max(1.5, Wpx / 700);
@@ -114,13 +136,13 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
         ctx.beginPath(); ctx.moveTo(0, i * step + 0.5); ctx.lineTo(Wpx, i * step + 0.5); ctx.stroke();
       }
       ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.moveTo(0.5, 0); ctx.lineTo(0.5, Hpx); ctx.moveTo(Wpx - 0.5, 0); ctx.lineTo(Wpx - 0.5, Hpx); ctx.stroke();
-      const tint = tintCanvas(textMask(Wpx, Hpx), S.color);
+      const tint = tintCanvas(textMask(Wpx, Hpx, pad), S.color);
       ctx.globalAlpha = focus ? dim : 1;
-      ctx.drawImage(tint, 0, 0);
+      ctx.drawImage(tint, 0, -pad);
       if (focus) {
         ctx.globalAlpha = 1;
-        const y0 = Math.max(0, line * step - step * 0.25), y1 = Math.min(Hpx, line * step + letter + step * 0.3);
-        ctx.save(); ctx.beginPath(); ctx.rect(0, y0, Wpx, y1 - y0); ctx.clip(); ctx.drawImage(tint, 0, 0); ctx.restore();
+        const y0 = Math.max(-pad, line * step - step * 0.25 - (line === 0 ? pad : 0)), y1 = Math.min(Hpx, line * step + letter + step * 0.3);
+        ctx.save(); ctx.beginPath(); ctx.rect(0, y0, Wpx, y1 - y0); ctx.clip(); ctx.drawImage(tint, 0, -pad); ctx.restore();
       }
       ctx.globalAlpha = 1;
       return;
@@ -191,7 +213,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   const sliceCache = new Map();
   // find a vertical slice of the glyph that crosses only horizontal strokes (same ink runs over a span)
   function glyphSlice(ch, px) {
-    const key = ch + '|' + fontFamily() + '|' + Math.round(px);
+    const key = ch + '|' + fontFamily() + '|' + px.toFixed(2);
     if (sliceCache.has(key)) return sliceCache.get(key);
     const m = document.createElement('canvas').getContext('2d'); m.font = `${px}px "${fontFamily()}"`;
     const adv = m.measureText(ch).width, pad = Math.ceil(px * 0.4);
@@ -268,11 +290,12 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     x.drawImage(G, 0, 0, leftW, G.height, xr - (O - cx) - extra - leftW, top, leftW, G.height); // left part (as is)
   }
 
-  function textMask(Wpx, Hpx) {
-    const key = [Wpx, Hpx, rowGeom(Hpx).letter.toFixed(3), S.bigLetters, fontFamily()].join('|');
+  function textMask(Wpx, Hpx, pad = 0) {
+    const key = [Wpx, Hpx, pad, rowGeom(Hpx).letter.toFixed(3), S.bigLetters, fontFamily()].join('|');
     if (maskCache.key === key) return maskCache.c;
-    const c = document.createElement('canvas'); c.width = Wpx; c.height = Hpx;
+    const c = document.createElement('canvas'); c.width = Wpx; c.height = Hpx + pad;
     const x = c.getContext('2d');
+    x.translate(0, pad);
     const { step, letter } = rowGeom(Hpx);
     x.font = `100px "${fontFamily()}"`;
     const mh = x.measureText('ה');
@@ -287,7 +310,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       ws.forEach((cs, k) => {
         for (const ch of cs) {
           if (ch.e > 0.5) drawDilated(x, ch.ch, xr, base, ch.e, px);
-          else if (ch.big) { x.save(); x.translate(xr, base - asc); x.scale(1.5, 1.5); x.translate(0, asc); x.fillText(ch.ch, 0, 0); x.restore(); }
+          else if (ch.big) { x.save(); x.translate(xr, base); x.scale(1.5, 1.5); x.fillText(ch.ch, 0, 0); x.restore(); } // rises above the line
           else x.fillText(ch.ch, xr, base);
           xr -= ch.w + ch.e;
         }
@@ -309,7 +332,8 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     textState.r = body / Math.max(...L.natural.filter((_, i) => i !== L.LAST));
     maskCache.key = '';
   }
-  function fontFamily() { return textState.userFont ? textState.userFont.family : FONT_FAMILY; }
+  function fontFamily() { return S.font === 'user' && textState.userFont ? textState.userFont.family : FONTS[S.font === 'clm' ? 'clm' : 'shlomo'].family; }
+  function fontChanged() { sliceCache.clear(); computeRatio(); }
 
   async function loadUserFont(file) {
     if (!file) return;
@@ -323,7 +347,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     const m = document.createElement('canvas').getContext('2d'); m.font = `100px "${family}"`;
     if (!(m.measureText('ה').actualBoundingBoxAscent > 1)) throw new Error('בגופן הזה אין אותיות עבריות.');
     textState.userFont = { family, name: file.name, hash };
-    sliceCache.clear(); computeRatio();
+    S.font = 'user'; fontChanged();
   }
 
   async function initText() {
@@ -334,8 +358,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       const h = await sha256Hex(new TextEncoder().encode(flat));
       if (h && h !== TEXT_SHA256) throw new Error('טביעת הטקסט לא תואמת');
       textState.hash = h || '';
-      const ff = new FontFace(FONT_FAMILY, `url(${stamFontUrl})`);
-      await ff.load(); document.fonts.add(ff);
+      for (const f of Object.values(FONTS)) { const ff = new FontFace(f.family, `url(${f.url})`); await ff.load(); document.fonts.add(ff); }
       computeRatio();
       textState.ready = true;
     } catch (e) {
@@ -418,6 +441,9 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     ui.autoTrim.checked = S.autoTrim; $('bigLetters').checked = S.bigLetters;
     document.querySelector(`input[name=tpl][value=${S.tpl}]`).checked = true;
     document.querySelector(`input[name=cal][value=${S.cal}]`).checked = true;
+    $('fontUser').disabled = !textState.userFont;
+    if (S.font === 'user' && !textState.userFont) S.font = 'shlomo';
+    document.querySelector(`input[name=font][value=${S.font}]`).checked = true;
     const col = document.querySelector(`input[name=color][value="${S.color}"]`); if (col) col.checked = true;
     ui.imgBox.hidden = S.tpl !== 'image';
     $('textBox').hidden = S.tpl !== 'text';
@@ -472,16 +498,21 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     const OW = outerW(), OH = outerH(), BW = blockW(), BH = heightCm();
     const ppc = (S.tpl === 'text' ? 1400 : 900) / OW; // px per cm
     ui.canvas.width = Math.round(OW * ppc); ui.canvas.height = Math.round(OH * ppc);
+    const padTop = Math.round(Math.max(0, BH * ppc * padFrac() - (onKlaf() ? S.mt / 10 * ppc : 0))); // raised letters above the klaf edge
+    ui.canvas.height += padTop;
     const pctx = ui.canvas.getContext('2d');
+    pctx.save(); pctx.translate(0, padTop);
     const ox = onKlaf() ? Math.round((OW - BW - S.mr / 10) * ppc) : 0, oy = onKlaf() ? Math.round(S.mt / 10 * ppc) : 0;
     const Wpx = Math.round(BW * ppc), Hpx = Math.round(BH * ppc);
     if (onKlaf()) { // the klaf itself, with its margins
       pctx.fillStyle = 'rgba(160,120,60,0.10)'; pctx.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
       pctx.strokeStyle = '#8a6a3a'; pctx.lineWidth = 3; pctx.strokeRect(1.5, 1.5, ui.canvas.width - 3, ui.canvas.height - 3);
     }
-    const tmp = document.createElement('canvas'); tmp.width = Wpx; tmp.height = Hpx;
-    drawTemplate(tmp.getContext('2d'), Wpx, Hpx, { mode: 'full' });
-    pctx.drawImage(tmp, ox, oy);
+    const padPx = Math.round(Hpx * padFrac());
+    const tmp = document.createElement('canvas'); tmp.width = Wpx; tmp.height = Hpx + padPx;
+    drawTemplate(tmp.getContext('2d'), Wpx, Hpx, { mode: 'full', pad: padPx });
+    pctx.drawImage(tmp, ox, oy - padPx);
+    pctx.restore();
     if (S.tpl === 'image' || onKlaf()) { pctx.strokeStyle = '#1d4ed8'; pctx.lineWidth = 2; pctx.setLineDash([8, 6]); pctx.strokeRect(ox + 1, oy + 1, Wpx - 2, Hpx - 2); pctx.setLineDash([]); }
     const sq = $('dimSqueeze');
     if (S.tpl === 'text') {
@@ -515,6 +546,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     else if (t === ui.opacity) { S.opacity = +ui.opacity.value / 100; }
     else if (t === ui.autoTrim) { S.autoTrim = ui.autoTrim.checked; }
     else if (t.id === 'bigLetters') { S.bigLetters = t.checked; }
+    else if (t.name === 'font') { S.font = t.value; fontChanged(); }
     else return;
     save();
     if (t.type === 'number') { refreshDerived(t); return; } // keep what is being typed
@@ -574,7 +606,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
 
   // ---------- XR scene ----------
   let renderer, scene, camera, session = null, refSpace = null;
-  let outline = null;
+  let outline = null, texPad = 0;
   let root, adjust, mesh, tex, texCanvas, labels, labelTex, labelCanvas, panel, panelTex, panelCanvas;
   const cursors = new Map(); // inputSource -> mesh
   const calib = { step: 0, pts: [], markers: [], msg: '' };
@@ -632,10 +664,12 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     }
     if (mesh) { adjust.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); tex.dispose(); }
     if (labels) { adjust.remove(labels); labels.geometry.dispose(); labels.material.dispose(); labelTex.dispose(); }
-    const cw = Math.round(Math.min(TEX_MAX, TEX_MAX * W / H)), ch = Math.round(cw * H / W);
-    const b = makeCanvasPlane(W, H, cw, ch);
+    const pf = padFrac(), HT = H * (1 + pf);
+    const cw = Math.round(Math.min(TEX_MAX, TEX_MAX * W / HT)), ch = Math.round(cw * HT / W);
+    texPad = Math.round(ch * pf / (1 + pf));
+    const b = makeCanvasPlane(W, HT, cw, ch);
     texCanvas = b.c; tex = b.t; mesh = b.m; mesh.material.opacity = S.opacity; mesh.renderOrder = 2;
-    mesh.position.set(off.x - W / 2, off.y - H / 2, 0); // block top-right corner = calibrated corner + margins
+    mesh.position.set(off.x - W / 2, off.y + H * pf - HT / 2, 0); // block top-right corner = calibrated corner + margins
     adjust.add(mesh);
     const lb = makeCanvasPlane(0.012, H, 96, Math.min(4096, Math.round(96 * H / 0.012)));
     labelCanvas = lb.c; labelTex = lb.t; labels = lb.m; labels.renderOrder = 2;
@@ -646,7 +680,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
 
   function redrawBlock() {
     if (!texCanvas) return;
-    drawTemplate(texCanvas.getContext('2d'), texCanvas.width, texCanvas.height, { mode: S.mode, line: S.line });
+    drawTemplate(texCanvas.getContext('2d'), texCanvas.width, texCanvas.height - texPad, { mode: S.mode, line: S.line, pad: texPad });
     tex.needsUpdate = true;
     mesh.material.opacity = S.opacity;
     if (outline) outline.material.color.set(S.color);
@@ -992,6 +1026,8 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     state: () => ({ confirm: lock.confirm, locked: lock.locked, step: calib.step, line: S.line, mode: S.mode, opacity: S.opacity, adj: { ...adj }, measured: lock.measured, msg: calib.msg, lost: trackingLost, inXR: !!session }),
   };
 
+  { const el = $('oflText'); if (el) el.textContent = shlomoOFL; }
+  { const el = $('clmText'); if (el) el.textContent = clmLicense; }
   // ---------- boot ----------
   load(); syncUI(); checkSupport(); initText();
 }
