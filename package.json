@@ -1,13 +1,13 @@
 {
   "name": "mezuzah-overlay",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "WebXR mezuzah layout guide for STaM scribes on Meta Quest 3S",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node build.mjs",
+    "test": "node build.mjs && python3 test/run.py"
   },
   "keywords": [],
   "author": "",
@@ -16,5 +16,6 @@
     "esbuild": "^0.24.0",
     "iwer": "^2.1.1",
     "three": "^0.170.0"
-  }
+  },
+  "private": true
 }

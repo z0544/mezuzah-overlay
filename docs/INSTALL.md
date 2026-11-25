@@ -2,14 +2,13 @@
 
 הקסדה צריכה לפתוח את האפליקציה בכתובת **https**. הדרך הכי פשוטה היא GitHub Pages (חינם).
 
-## שלב 1: לפרסם את הקובץ (פעם אחת, מהמחשב)
-1. נכנסים ל-github.com עם החשבון שלכם ← **New repository**.
-2. שם: `mezuzah-overlay` · מסמנים **Public** · מסמנים **Add a README file** ← **Create repository**.
-3. ב-repo: **Add file ← Upload files** ← גוררים את הקובץ `index.html` ← **Commit changes**.
-4. **Settings ← Pages** ← תחת Branch בוחרים `main` ואת התיקייה `/ (root)` ← **Save**.
-5. אחרי דקה או שתיים מופיעה כתובת בצורה `https://<שם-משתמש>.github.io/mezuzah-overlay/`.
+## שלב 1: הפעלת GitHub Pages (פעם אחת, מהמחשב)
+הקוד כבר נמצא ב-repo `z0544/mezuzah-overlay`.
+1. ב-GitHub נכנסים ל-repo ← **Settings ← Pages**.
+2. תחת **Build and deployment** בוחרים: Source = **Deploy from a branch**, Branch = `main`, תיקייה = `/ (root)` ← **Save**.
+3. אחרי דקה-שתיים האתר זמין בכתובת `https://z0544.github.io/mezuzah-overlay/`.
 
-> ה-repo ציבורי, אבל אין בו שום מידע אישי. תמונת התיקון נטענת רק בתוך הקסדה ולא עולה לשום מקום.
+> ב-GitHub החינמי, Pages עובד רק כשה-repo **ציבורי**. ב-repo אין שום מידע אישי.
 
 ## שלב 2: בקסדה
 1. פותחים את **Browser** בקסדה ומקלידים את הכתובת (או שולחים אותה לעצמכם ופותחים מהקישור).
@@ -23,4 +22,4 @@
 4. אם הסטייה גדולה מחצי רווח בין שורות, משתמשים רק במצב "שורה נוכחית" ככיוון כללי.
 
 ## עדכון גרסה
-ב-repo: **Add file ← Upload files** ← מעלים `index.html` חדש (הוא מחליף את הקודם).
+מריצים `npm run build`, ועושים commit ו-push לקובץ `index.html` שבשורש. האתר מתעדכן אוטומטית תוך דקה-שתיים.

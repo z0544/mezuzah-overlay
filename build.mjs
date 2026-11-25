@@ -11,4 +11,5 @@ const js = r.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 const html = readFileSync('src/index.template.html', 'utf8').replace('<script>/*__APP__*/</script>', () => `<script>${js}</script>`);
 mkdirSync('dist', { recursive: true });
 writeFileSync('dist/index.html', html);
+writeFileSync('index.html', html); // GitHub Pages serves the repo root
 console.log('dist/index.html', (html.length / 1024).toFixed(0), 'KB');

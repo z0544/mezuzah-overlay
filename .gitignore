@@ -4,3 +4,4 @@ node_modules/
 secrets*
 templates-real/
 test/out/
+dist/

@@ -12,7 +12,8 @@
 ## מבנה
 - `src/app.js` – לוגיקת האפליקציה (ES module, three.js)
 - `src/index.template.html` – מעטפת HTML ו-CSS
-- `build.mjs` – מאחד הכול ל-`dist/index.html` יחיד
+- `build.mjs` – מאחד הכול ל-`index.html` יחיד בשורש (GitHub Pages), עותק ב-`dist/`
+- Repo: https://github.com/z0544/mezuzah-overlay · Pages: https://z0544.github.io/mezuzah-overlay/
 - `test/` – בדיקות Playwright + IWER (אמולטור WebXR של Meta)
 - `docs/INSTALL.md` – מדריך התקנה + פרוטוקול מדידת דיוק
 
