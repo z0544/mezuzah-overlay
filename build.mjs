@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 const r = await build({
   entryPoints: ['src/app.js'], bundle: true, minify: true, format: 'iife',
   target: ['chrome110'], write: false, legalComments: 'eof',
+  loader: { '.ttf': 'dataurl' },
 });
 const js = r.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 const html = readFileSync('src/index.template.html', 'utf8').replace('<script>/*__APP__*/</script>', () => `<script>${js}</script>`);

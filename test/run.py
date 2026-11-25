@@ -35,6 +35,21 @@ with sync_playwright() as p:
         pg.fill('#w', '10'); pg.wait_for_timeout(50)
         pg.close()
 
+    # --- mezuzah text template ---
+    pg = b.new_page(viewport={'width': 1440, 'height': 900})
+    errs = []; pg.on('pageerror', lambda e: errs.append(str(e)))
+    pg.goto(URL); pg.click('label[for=tplText]'); pg.wait_for_timeout(800)
+    tx = pg.evaluate('window.__mezuzah.text()')
+    check('text template ready', tx['ready'] and not tx['error'], json.dumps(tx, ensure_ascii=False))
+    check('text hash matches', tx['hash'] == 'a74a44b7c1fe7bb6d423ccada6ad47b33de902c7a0641ed88e8854a4304b0db4', tx['hash'])
+    check('proof list has 22 lines', pg.locator('#proofLines li').count() == 22)
+    check('rows locked to 22 in text mode', pg.is_disabled('#rows') and pg.input_value('#rows') == '22')
+    check('no page errors text', not errs, '; '.join(errs))
+    pg.click('#textProof summary')
+    pg.screenshot(path=f'{OUT}/ui-text.png', full_page=True)
+    pg.locator('#previewCanvas').screenshot(path=f'{OUT}/text-preview.png')
+    pg.close()
+
     # --- image template: synthetic "ink" image ---
     pg = b.new_page(viewport={'width': 1440, 'height': 900})
     pg.goto(URL)
@@ -64,6 +79,7 @@ with sync_playwright() as p:
     logs = []; pg.on('console', lambda m: logs.append(m.text) if m.type == 'error' else None)
     pg.goto(URL); pg.wait_for_timeout(500)
     check('status ready with XR', 'מוכן' in pg.text_content('#xrStatusText'), pg.text_content('#xrStatusText'))
+    pg.click('label[for=tplText]'); pg.wait_for_timeout(600)
     pg.fill('#w', '0'); pg.wait_for_timeout(50)
     check('invalid input blocks AR', pg.is_disabled('#enterAR'))
     pg.fill('#w', '10'); pg.wait_for_timeout(50)

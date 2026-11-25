@@ -1,6 +1,8 @@
 // Mezuzah Overlay – WebXR (immersive-ar) for Meta Quest 3S
 // All units in meters inside the XR scene; UI in centimeters.
 import * as THREE from 'three';
+import TEXT from './data/mezuzah-text.json';
+import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
 
 {
   // ---------- constants ----------
@@ -12,6 +14,9 @@ import * as THREE from 'three';
   const MODES = ['full', 'line', 'off'];
   const MODE_LABEL = { full: 'מלא', line: 'שורה נוכחית', off: 'מוסתר' };
   const TEX_MAX = 2048;
+  const TEXT_SHA256 = 'a74a44b7c1fe7bb6d423ccada6ad47b33de902c7a0641ed88e8854a4304b0db4';
+  const FONT_FAMILY = 'StamAshkenazCLM';
+  const textState = { ready: false, error: '', hash: '' };
 
   // ---------- state ----------
   const S = {
@@ -48,17 +53,19 @@ import * as THREE from 'three';
       S.opacity = num(v.opacity, 0.1, 1, S.opacity);
       if (/^#[0-9a-f]{6}$/i.test(v.color)) S.color = v.color;
       S.autoTrim = v.autoTrim !== false;
-      // image is not persisted, so always start on grid
+      if (v.tpl === 'text') S.tpl = 'text'; // image is not persisted
     } catch (_) { /* ignore */ }
   }
 
   // ---------- geometry of rows (STaM: block top = first sirtut line, bottom = bottom of last row) ----------
   function rowGeom(Hpx) {
     const p = S.letterPct / 100;
-    const step = Hpx / ((S.rows - 1) + p);
+    const rows = S.tpl === 'text' ? TEXT.lines.length : S.rows;
+    const step = Hpx / ((rows - 1) + p);
     return { step, letter: step * p };
   }
 
+  function rowCount() { return S.tpl === 'text' ? TEXT.lines.length : S.rows; }
   function heightCm() {
     if (S.tpl === 'image' && S.img) return +(S.w * S.img.aspect).toFixed(2);
     return S.h;
@@ -72,6 +79,27 @@ import * as THREE from 'three';
     const lw = Math.max(1.5, Wpx / 700);
     const focus = mode === 'line' && line >= 0;
     const dim = 0.18;
+
+    if (S.tpl === 'text' && textState.ready) {
+      const n = TEXT.lines.length;
+      // faint sirtut lines
+      ctx.strokeStyle = S.color; ctx.lineWidth = Math.max(1, lw * 0.7);
+      for (let i = 0; i < n; i++) {
+        ctx.globalAlpha = focus ? (i === line ? 0.6 : 0.08) : 0.28;
+        ctx.beginPath(); ctx.moveTo(0, i * step + 0.5); ctx.lineTo(Wpx, i * step + 0.5); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.moveTo(0.5, 0); ctx.lineTo(0.5, Hpx); ctx.moveTo(Wpx - 0.5, 0); ctx.lineTo(Wpx - 0.5, Hpx); ctx.stroke();
+      const tint = tintCanvas(textMask(Wpx, Hpx), S.color);
+      ctx.globalAlpha = focus ? dim : 1;
+      ctx.drawImage(tint, 0, 0);
+      if (focus) {
+        ctx.globalAlpha = 1;
+        const y0 = Math.max(0, line * step - step * 0.25), y1 = Math.min(Hpx, line * step + letter + step * 0.3);
+        ctx.save(); ctx.beginPath(); ctx.rect(0, y0, Wpx, y1 - y0); ctx.clip(); ctx.drawImage(tint, 0, 0); ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
 
     if (S.tpl === 'image' && S.img) {
       // tinted mask
@@ -119,6 +147,76 @@ import * as THREE from 'three';
     x.fillStyle = color; x.fillRect(0, 0, c.width, c.height);
     Object.assign(tintCache, { src: mask, color, out: c });
     return c;
+  }
+
+  // ---------- mezuzah text (STaM font) ----------
+  // Layout: letters hang from the sirtut line; lines are justified by word spacing,
+  // line 7 opens with a setumah indent of ~9 letters, line 6 and line 22 are not stretched.
+  const maskCache = { key: '', c: null };
+  function textMask(Wpx, Hpx) {
+    const key = [Wpx, Hpx, S.letterPct].join('|');
+    if (maskCache.key === key) return maskCache.c;
+    const c = document.createElement('canvas'); c.width = Wpx; c.height = Hpx;
+    const x = c.getContext('2d');
+    const { step, letter } = rowGeom(Hpx);
+    const font = (px) => `${px}px "${FONT_FAMILY}"`;
+    x.font = font(100);
+    const mh = x.measureText('ה');
+    const body = (mh.actualBoundingBoxAscent + mh.actualBoundingBoxDescent) || 70;
+    const px = 100 * letter / body;
+    x.font = font(px); x.direction = 'rtl'; x.textAlign = 'right'; x.textBaseline = 'alphabetic'; x.fillStyle = '#fff';
+    const asc = x.measureText('ה').actualBoundingBoxAscent;
+    const yod = x.measureText('י').width;
+    const avg = x.measureText('אבגדהוזחטיכלמנסעפצקרשת').width / 22;
+    const indent = 9 * avg;
+    const widths = TEXT.lines.map((l) => l.map((w) => x.measureText(w).width));
+    const SETUMAH = 6, LAST = TEXT.lines.length - 1; // 0-based: line 7 indent, line 22 short
+    const natural = widths.map((ws, i) => ws.reduce((a, b) => a + b, 0) + (ws.length - 1) * yod + (i === SETUMAH ? indent : 0));
+    const widest = Math.max(...natural.filter((_, i) => i !== LAST));
+    const sx = Math.min(1, Wpx / widest); // squeeze only when the block is too narrow
+    TEXT.lines.forEach((ws, i) => {
+      const wsum = widths[i].reduce((a, b) => a + b, 0) * sx;
+      const ind = i === SETUMAH ? indent * sx : 0;
+      const justify = i !== LAST && i !== SETUMAH - 1 && ws.length > 1;
+      const gap = justify ? (Wpx - wsum - ind) / (ws.length - 1) : yod * sx;
+      let xr = Wpx - ind;
+      const base = i * step + asc;
+      ws.forEach((w, k) => {
+        x.save(); x.translate(xr, base); x.scale(sx, 1); x.fillText(w, 0, 0); x.restore();
+        xr -= widths[i][k] * sx + gap;
+      });
+    });
+    Object.assign(maskCache, { key, c, sx });
+    return c;
+  }
+
+  async function initText() {
+    try {
+      const flat = TEXT.lines.map((l) => l.join(' ')).join('\n');
+      const letters = TEXT.lines.flat().join('').length;
+      if (TEXT.lines.length !== 22 || letters !== 713 || /[^\u05d0-\u05ea \n]/.test(flat)) throw new Error('בדיקת שלמות הטקסט נכשלה');
+      const h = await sha256Hex(new TextEncoder().encode(flat));
+      if (h && h !== TEXT_SHA256) throw new Error('טביעת הטקסט לא תואמת');
+      textState.hash = h || '';
+      const ff = new FontFace(FONT_FAMILY, `url(${stamFontUrl})`);
+      await ff.load(); document.fonts.add(ff);
+      textState.ready = true;
+    } catch (e) {
+      textState.error = (e && e.message) || 'טעינת הטקסט נכשלה';
+    }
+    renderTextProof(); syncUI();
+  }
+
+  function renderTextProof() {
+    const box = $('textProof'); if (!box) return;
+    const ol = $('proofLines'); ol.textContent = '';
+    TEXT.lines.forEach((l) => { const li = document.createElement('li'); li.textContent = l.join(' '); ol.appendChild(li); });
+    $('proofMeta').textContent = textState.error
+      ? textState.error
+      : `${TEXT.lines.length} שורות · ${TEXT.lines.flat().join('').length} אותיות · בדיקת שלמות עברה. טביעת הטקסט:`;
+    $('proofMeta').classList.toggle('err', !!textState.error);
+    $('proofHash').textContent = textState.hash ? 'SHA-256: ' + textState.hash : '';
+    $('proofHash').hidden = !textState.hash;
   }
 
   // ---------- image loading ----------
@@ -183,26 +281,36 @@ import * as THREE from 'three';
     const col = document.querySelector(`input[name=color][value="${S.color}"]`); if (col) col.checked = true;
     document.querySelectorAll('input[name=preset]').forEach((r) => { r.checked = +r.value === S.w; });
     ui.imgBox.hidden = S.tpl !== 'image';
+    $('textBox').hidden = S.tpl !== 'text';
+    ui.rows.disabled = S.tpl === 'text';
+    if (S.tpl === 'text') ui.rows.value = TEXT.lines.length;
     const imgMode = S.tpl === 'image';
     ui.h.disabled = imgMode;
     ui.h.value = heightCm();
     ui.sizeHint.textContent = imgMode
       ? 'הגובה מחושב לפי היחס בתמונה. קובעים רק את הרוחב.'
       : 'המידות של שטח הכתב בלבד, בלי השוליים של הקלף.';
-    ui.dimW.textContent = S.w; ui.dimH.textContent = heightCm(); ui.dimRows.textContent = S.rows;
+    ui.dimW.textContent = S.w; ui.dimH.textContent = heightCm(); ui.dimRows.textContent = rowCount();
     updateEnter();
     renderPreview();
   }
 
   function renderPreview() {
+    $('dimSqueeze').textContent = '';
     const noImg = S.tpl === 'image' && !S.img;
-    ui.stageEmpty.hidden = !noImg; ui.canvas.hidden = noImg;
-    if (noImg) return;
+    const noText = S.tpl === 'text' && !textState.ready;
+    ui.stageEmpty.hidden = !(noImg || noText); ui.canvas.hidden = noImg || noText;
+    ui.stageEmpty.textContent = noImg ? 'בחרו קובץ תמונה כדי לראות את התבנית'
+      : textState.error ? 'הטקסט לא נטען: ' + textState.error : 'טוען גופן…';
+    if (noImg || noText) return;
     const H = heightCm();
-    const Wpx = 900, Hpx = Math.round(Wpx * H / S.w);
+    const Wpx = S.tpl === 'text' ? 1400 : 900, Hpx = Math.round(Wpx * H / S.w);
     ui.canvas.width = Wpx; ui.canvas.height = Hpx;
     const pctx = ui.canvas.getContext('2d');
     drawTemplate(pctx, Wpx, Hpx, { mode: 'full' });
+    const sq = $('dimSqueeze');
+    if (S.tpl === 'text' && maskCache.sx && maskCache.sx < 0.995) sq.textContent = ` · רוחב אותיות ${Math.round(maskCache.sx * 100)}% (הגדילו את הרוחב או הקטינו את הגובה)`;
+    else sq.textContent = '';
     if (S.tpl === 'image') { pctx.strokeStyle = '#1d4ed8'; pctx.lineWidth = 2; pctx.setLineDash([8, 6]); pctx.strokeRect(1, 1, Wpx - 2, Hpx - 2); pctx.setLineDash([]); }
   }
 
@@ -234,7 +342,7 @@ import * as THREE from 'three';
     if (t === ui.w || t === ui.h || t === ui.rows || t === ui.letterPct) {
       document.querySelectorAll('input[name=preset]').forEach((r) => { r.checked = +r.value === S.w; });
       ui.h.value = t === ui.h ? ui.h.value : heightCm();
-      ui.dimW.textContent = S.w; ui.dimH.textContent = heightCm(); ui.dimRows.textContent = S.rows;
+      ui.dimW.textContent = S.w; ui.dimH.textContent = heightCm(); ui.dimRows.textContent = rowCount();
       renderPreview(); updateEnter();
       return;
     }
@@ -255,12 +363,12 @@ import * as THREE from 'three';
   let xrSupported = false;
   function setStatus(s, text) { ui.status.dataset.s = s; ui.statusText.textContent = text; }
   function updateEnter() {
-    const needImg = S.tpl === 'image' && !S.img;
+    const needImg = (S.tpl === 'image' && !S.img) || (S.tpl === 'text' && !textState.ready);
     const bad = invalid.size > 0;
     ui.enter.disabled = !xrSupported || needImg || bad;
     ui.enterHint.textContent = !window.isSecureContext ? 'צריך לפתוח את הדף בכתובת https.'
       : !xrSupported ? 'הכניסה ל-AR זמינה רק בדפדפן של הקסדה (Meta Quest Browser).'
-      : needImg ? 'צריך לבחור קודם קובץ תמונה של התיקון.'
+      : needImg ? (S.tpl === 'text' ? 'הטקסט עדיין נטען, או שבדיקת השלמות נכשלה.' : 'צריך לבחור קודם קובץ תמונה של התיקון.')
       : bad ? 'יש ערך לא תקין באחד השדות (מסומן באדום).' : 'ודאו שהקלף מקובע ושיש אור טוב.';
   }
 
@@ -327,7 +435,7 @@ import * as THREE from 'three';
     const W = S.w / 100, H = heightCm() / 100;
     if (mesh) { adjust.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); tex.dispose(); }
     if (labels) { adjust.remove(labels); labels.geometry.dispose(); labels.material.dispose(); labelTex.dispose(); }
-    const cw = TEX_MAX, ch = Math.min(4096, Math.round(TEX_MAX * H / W));
+    const cw = Math.round(Math.min(TEX_MAX, TEX_MAX * W / H)), ch = Math.round(cw * H / W);
     const b = makeCanvasPlane(W, H, cw, ch);
     texCanvas = b.c; tex = b.t; mesh = b.m; mesh.material.opacity = S.opacity; mesh.renderOrder = 2;
     mesh.position.set(-W / 2, -H / 2, 0); // block top-right corner at adjust origin
@@ -350,7 +458,7 @@ import * as THREE from 'three';
     if (S.mode !== 'off') {
       const { step, letter } = rowGeom(Hp);
       x.textAlign = 'center'; x.textBaseline = 'middle';
-      for (let i = 0; i < S.rows; i++) {
+      for (let i = 0; i < rowCount(); i++) {
         const cur = i === S.line;
         x.globalAlpha = cur ? 1 : 0.55;
         x.fillStyle = S.color;
@@ -397,7 +505,7 @@ import * as THREE from 'three';
         lines.push(['#ffffff', 400, 32, 'ודאו שהגודל שנבחר נכון. הדק / צביטה = אישור.']);
         lines.push(['#c8c8c8', 400, 30, 'אחיזה כפולה ממושכת (או צביטה כפולה) = כיול מחדש']);
       } else {
-        lines.push(['#9ec1ff', 700, 48, `שורה ${S.line + 1} מתוך ${S.rows} · ${MODE_LABEL[S.mode]}`]);
+        lines.push(['#9ec1ff', 700, 48, `שורה ${S.line + 1} מתוך ${rowCount()} · ${MODE_LABEL[S.mode]}`]);
         lines.push(['#ffffff', 400, 32, `מ"מ: ${sgn(adj.dx * 1000, 'ימינה', 'שמאלה')} · ${sgn(adj.dy * 1000, 'למעלה', 'למטה')} · ${sgn(adj.dz * 1000, 'מעל המשטח', 'לתוך המשטח')} · סיבוב ${sgn(THREE.MathUtils.radToDeg(adj.rot), 'נגד השעון', 'עם השעון')}`]);
         if (g) lines.push([g.warn ? '#ffd27a' : '#c8c8c8', 400, 30, `פער מדידה (מ"מ): רוחב ${sgn(g.dw, 'יותר', 'פחות')} · גובה ${sgn(g.dh, 'יותר', 'פחות')}`]);
         lines.push(['#c8c8c8', 400, 28, 'A/B שורה · X מצב · Y אטימות · לחיצה על ג\'ויסטיק ימני: איפוס הזזה']);
@@ -504,7 +612,7 @@ import * as THREE from 'three';
     root.matrix.copy(m); root.matrixWorldNeedsUpdate = true; root.visible = !trackingLost;
     for (const mk of calib.markers) mk.visible = false;
     S.line = 0; S.mode = 'full';
-    if (S.tpl === 'image') S.opacity = Math.min(S.opacity, 0.5); // layout guide, not a stencil
+    if (S.tpl !== 'grid') S.opacity = Math.min(S.opacity, 0.5); // layout guide, not a stencil
     Object.assign(adj, { dx: 0, dy: 0, dz: 0, rot: 0 }); applyAdjust();
     buildBlock();
   }
@@ -517,7 +625,7 @@ import * as THREE from 'three';
     root.visible = false; panelDirty = true;
   }
 
-  function setLine(n) { S.line = (n + S.rows) % S.rows; redrawBlock(); }
+  function setLine(n) { const r = rowCount(); S.line = (n + r) % r; redrawBlock(); }
 
   function pollGamepads(frame, now) {
     for (const src of session.inputSources) {
@@ -680,9 +788,10 @@ import * as THREE from 'three';
       cam.position.copy(c).addScaledVector(n, dist); cam.up.copy(up); cam.lookAt(c);
       r2.render(scene, cam); const url = r2.domElement.toDataURL('image/png'); r2.dispose(); return url;
     },
+    text: () => ({ ...textState }),
     state: () => ({ confirm: lock.confirm, locked: lock.locked, step: calib.step, line: S.line, mode: S.mode, opacity: S.opacity, adj: { ...adj }, measured: lock.measured, msg: calib.msg, lost: trackingLost, inXR: !!session }),
   };
 
   // ---------- boot ----------
-  load(); syncUI(); checkSupport();
+  load(); syncUI(); checkSupport(); initText();
 }

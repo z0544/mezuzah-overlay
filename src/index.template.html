@@ -87,6 +87,12 @@ input[type=range]{width:100%;accent-color:var(--primary);min-height:32px}
   background-image:linear-gradient(rgb(120 90 40 / .06) 1px,transparent 1px),linear-gradient(90deg,rgb(120 90 40 / .06) 1px,transparent 1px);background-size:20px 20px}
 .stage canvas{max-width:100%;max-height:560px;width:auto;height:auto;display:block}
 .stage .empty{color:#6b5f45;text-align:center;font-size:15px}
+.proof{border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 16px;background:var(--surface)}
+.proof summary{cursor:pointer;font-weight:700;min-height:32px;display:flex;align-items:center}
+.proof summary:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+.proof ol{margin:12px 0;padding-inline-start:32px;display:grid;gap:4px;font-size:17px;line-height:1.6}
+.proof ol li::marker{color:var(--muted);font-size:13px}
+.hash.err,.proof .err{color:var(--danger)}
 .note{border-inline-start:4px solid var(--warning);background:var(--surface);padding:12px 16px;border-radius:var(--r-sm);font-size:14px;color:var(--ink);margin:0}
 .steps{margin-block-start:24px;padding:20px;display:grid;gap:16px}
 .steps ol{margin:0;padding-inline-start:24px;display:grid;gap:8px}
@@ -118,8 +124,12 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
       <fieldset>
         <legend>תבנית</legend>
         <div class="seg" role="radiogroup">
-          <input type="radio" name="tpl" id="tplGrid" value="grid" checked><label for="tplGrid">רשת שורות</label>
-          <input type="radio" name="tpl" id="tplImg" value="image"><label for="tplImg">תמונת תיקון</label>
+          <input type="radio" name="tpl" id="tplText" value="text"><label for="tplText">טקסט</label>
+          <input type="radio" name="tpl" id="tplGrid" value="grid" checked><label for="tplGrid">רשת</label>
+          <input type="radio" name="tpl" id="tplImg" value="image"><label for="tplImg">תמונה</label>
+        </div>
+        <div id="textBox" hidden>
+          <p class="hint">22 שורות, 713 אותיות, בגופן סת"ם אשכנזי (Stam Ashkenaz CLM). הגופן הוא קירוב לכתב בית יוסף: צורות האותיות והתגים לא אושרו כ"בית יוסף". הטקסט המלא להגהה מופיע מתחת לתצוגה המקדימה.</p>
         </div>
         <div id="imgBox" hidden>
           <label class="file" for="imgFile">
@@ -179,9 +189,16 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
     <section class="card preview" aria-label="תצוגה מקדימה">
       <div class="preview-head">
         <h2>תצוגה מקדימה</h2>
-        <span class="dims">גודל על הקלף: <b id="dimW">10.5</b> × <b id="dimH">10.5</b> ס"מ · <b id="dimRows">22</b> שורות</span>
+        <span class="dims">גודל על הקלף: <b id="dimW">10.5</b> × <b id="dimH">10.5</b> ס"מ · <b id="dimRows">22</b> שורות<span id="dimSqueeze"></span></span>
       </div>
       <div class="stage" id="stage"><canvas id="previewCanvas" aria-label="תבנית"></canvas><p class="empty" id="stageEmpty" hidden>בחרו קובץ תמונה כדי לראות את התבנית</p></div>
+      <details class="proof" id="textProof">
+        <summary>טקסט התבנית להגהה (22 שורות)</summary>
+        <ol id="proofLines"></ol>
+        <p class="hint" id="proofMeta"></p>
+        <p class="hash" id="proofHash"></p>
+        <p class="hint">מקורות: הטקסט לפי Westminster Leningrad Codex, בהצלבה עם ספריא ("מקרא על פי המסורה"). "מזזות" בפרשת שמע: חסר וי"ו ראשונה, מלא וי"ו שנייה, לפי הרמב"ם והמסורה. ראשי השיטין לפי מחזור ויטרי (הלכות מזוזה, תקטו). "על הארץ" בראש השיטה האחרונה, לפי שו"ע יו"ד רפח. פרשה סתומה: ריווח של כ-9 אותיות בתחילת שורה 7.</p>
+      </details>
       <p class="note"><b>חשוב:</b> זה כלי עזר לפריסה, והוא לא מחליף שרטוט, כתיבה כסדרן או הגהה. לפני שימוש בפועל צריך אישור של פוסק. ודאו שתמונת התיקון מוגהת, וזהו אותה לפי טביעת ה-SHA-256.</p>
     </section>
   </div>
@@ -213,6 +230,7 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
     </div>
     <p class="hint">גם בלי בקרים: מכוונים את קצה האצבע המורה הימנית לפינה, ומאשרים בצביטה של היד השמאלית. אחרי הנעילה, צביטה של היד השמאלית מעבירה לשורה הבאה, וצביטה ממושכת בשתי הידיים מתחילה כיול מחדש. אם המעקב אבד או שהקסדה אופסה, התבנית מוסתרת עד שהמעקב חוזר או עד כיול מחדש.</p>
   </section>
+  <p class="hint" style="margin-block-start:16px">גופן Stam Ashkenaz CLM © יורם גנת, פרויקט Culmus, ברישיון GNU GPL גרסה 2.</p>
 </div>
 <script>/*__APP__*/</script>
 </body>
