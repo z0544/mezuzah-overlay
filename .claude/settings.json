@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "deny": ["Bash(git push:*)", "Bash(rm -rf:*)", "Read(./.env)"],
+    "ask": ["Bash(git commit:*)", "Bash(rm:*)", "Bash(gh repo create:*)", "Bash(gh api:*)"]
+  }
+}

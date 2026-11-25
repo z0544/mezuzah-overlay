@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>שכבת מזוזה לקלף</title>
+<style>
+/*
+  VOICE: שקט ומדויק, שולחן עבודה של סופר.
+  IDEA: דף עבודה על קלף, עם שרטוט וסרגל.
+  PICTURE: תצוגה מקדימה של התבנית בגודל שנבחר, על רקע קלף.
+  COLOUR/TYPE: קלף #f4ecd8, דיו #1b1a17, הדגשה אחת: כחול-דיו #1d4ed8. גופני מערכת.
+  LAYOUT: הגדרות בטור צר (ימין), תצוגה גדולה (שמאל), מתחת שלבי עבודה.
+*/
+:root{
+  color-scheme:light dark;
+  --bg:light-dark(#f7f4ec,#14130f);
+  --surface:light-dark(#ffffff,#1e1c17);
+  --surface-2:light-dark(#f1ece0,#26231c);
+  --border:light-dark(#ddd5c3,#3a352b);
+  --ink:light-dark(#1b1a17,#efe9dc);
+  --muted:light-dark(#5d574b,#b4ab98);
+  --primary:light-dark(#1d4ed8,#7aa2ff);
+  --primary-ink:light-dark(#ffffff,#0b1330);
+  --success:light-dark(#146c43,#5fd39a);
+  --warning:light-dark(#8a5a00,#f2c35b);
+  --danger:light-dark(#b42318,#ff8a80);
+  --klaf:#f4ecd8;
+  --r:10px; --r-sm:6px;
+  --shadow:0 1px 2px rgb(0 0 0 / .06),0 4px 16px rgb(0 0 0 / .06);
+  --font:"Segoe UI","Noto Sans Hebrew",Arial,system-ui,sans-serif;
+}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--font);overflow-x:clip}
+h1,h2,h3{margin:0;line-height:1.15}
+h1{font-size:28px;font-weight:700}
+h2{font-size:18px;font-weight:700}
+.wrap{max-width:1240px;margin-inline:auto;padding:24px max(4vw,16px) 48px}
+header.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;justify-content:space-between;margin-block-end:24px}
+.sub{color:var(--muted);margin:4px 0 0;font-size:15px}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-size:14px;font-weight:600;border:1px solid var(--border);background:var(--surface)}
+.pill .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.pill[data-s=ok] .dot{background:var(--success)} .pill[data-s=ok]{color:var(--success)}
+.pill[data-s=warn] .dot{background:var(--warning)} .pill[data-s=warn]{color:var(--warning)}
+.pill[data-s=err] .dot{background:var(--danger)} .pill[data-s=err]{color:var(--danger)}
+.grid{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:24px;align-items:start}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)}
+.panel{padding:20px;display:grid;gap:20px}
+fieldset{border:0;margin:0;padding:0;display:grid;gap:12px}
+legend{font-weight:700;font-size:15px;margin-block-end:8px;padding:0}
+.seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 8px;font-size:15px;cursor:pointer;border-inline-start:1px solid var(--border);text-align:center}
+.seg label:first-of-type{border-inline-start:0}
+.seg input:checked+label{background:var(--primary);color:var(--primary-ink);font-weight:600}
+.seg input:focus-visible+label{outline:3px solid var(--primary);outline-offset:-3px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.f{display:grid;gap:4px}
+.f>span{font-size:14px;color:var(--muted)}
+input[type=number],select{font:inherit;font-size:16px;min-height:44px;padding:0 12px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);color:var(--ink);width:100%}
+input[type=number]{direction:ltr;text-align:end}
+input[type=range]{width:100%;accent-color:var(--primary);min-height:32px}
+:is(input,select,button,.file):focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.hint.err{color:var(--danger)}
+.file{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;border:1px dashed var(--border);border-radius:var(--r-sm);cursor:pointer;font-size:15px;background:var(--surface-2)}
+.file input{position:absolute;opacity:0;width:1px;height:1px}
+.hash{font:13px/1.4 ui-monospace,Consolas,monospace;direction:ltr;text-align:start;overflow-wrap:anywhere;background:var(--surface-2);border-radius:var(--r-sm);padding:8px;margin:0}
+.swatches{display:flex;gap:8px;flex-wrap:wrap}
+.swatches input{position:absolute;opacity:0}
+.swatches label{width:44px;height:44px;border-radius:50%;border:2px solid var(--border);cursor:pointer;display:grid;place-items:center}
+.swatches input:checked+label{border-color:var(--ink);box-shadow:0 0 0 3px var(--surface) inset}
+.swatches input:focus-visible+label{outline:3px solid var(--primary);outline-offset:2px}
+.btn{font:inherit;font-weight:700;font-size:17px;min-height:52px;border-radius:var(--r-sm);border:0;cursor:pointer;padding:0 20px;display:inline-flex;align-items:center;justify-content:center;gap:10px}
+.btn-primary{background:var(--primary);color:var(--primary-ink);width:100%}
+.btn-primary:hover:not(:disabled){filter:brightness(1.08)}
+.btn-primary:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.loading{opacity:.8;cursor:progress}
+.preview{padding:16px;display:grid;gap:12px}
+.preview-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline}
+.dims{font-size:15px;color:var(--muted)}
+.dims b{color:var(--ink);font-variant-numeric:tabular-nums}
+.stage{background:var(--klaf);border-radius:var(--r-sm);display:grid;place-items:center;padding:32px;min-height:420px;position:relative;
+  background-image:linear-gradient(rgb(120 90 40 / .06) 1px,transparent 1px),linear-gradient(90deg,rgb(120 90 40 / .06) 1px,transparent 1px);background-size:20px 20px}
+.stage canvas{max-width:100%;max-height:560px;width:auto;height:auto;display:block}
+.stage .empty{color:#6b5f45;text-align:center;font-size:15px}
+.note{border-inline-start:4px solid var(--warning);background:var(--surface);padding:12px 16px;border-radius:var(--r-sm);font-size:14px;color:var(--ink);margin:0}
+.steps{margin-block-start:24px;padding:20px;display:grid;gap:16px}
+.steps ol{margin:0;padding-inline-start:24px;display:grid;gap:8px}
+.keys{width:100%;border-collapse:collapse;font-size:15px}
+.keys th,.keys td{text-align:start;padding:10px 8px;border-block-end:1px solid var(--border);vertical-align:top}
+.keys th{font-size:13px;color:var(--muted);font-weight:600}
+kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:24px;align-items:start}
+.msg{padding:12px 16px;border-radius:var(--r-sm);font-size:15px;margin:0}
+.msg[hidden]{display:none}
+.msg.err{background:light-dark(#fdecea,#3a1512);color:var(--danger)}
+.msg.warn{background:light-dark(#fff6e0,#35290d);color:var(--warning)}
+@media(max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}.stage{min-height:300px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>שכבת מזוזה לקלף</h1>
+      <p class="sub">מדריך פריסה לסופר סת"ם, ל-Meta Quest 3S. התבנית מוצגת על הקלף בגודל שבוחרים.</p>
+    </div>
+    <span class="pill" id="xrStatus" data-s="warn"><span class="dot"></span><span id="xrStatusText">בודק תמיכה ב-AR…</span></span>
+  </header>
+
+  <div class="grid">
+    <form class="card panel" id="settings" novalidate>
+      <fieldset>
+        <legend>תבנית</legend>
+        <div class="seg" role="radiogroup">
+          <input type="radio" name="tpl" id="tplGrid" value="grid" checked><label for="tplGrid">רשת שורות</label>
+          <input type="radio" name="tpl" id="tplImg" value="image"><label for="tplImg">תמונת תיקון</label>
+        </div>
+        <div id="imgBox" hidden>
+          <label class="file" for="imgFile">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>
+            <span id="imgFileLbl">בחירת קובץ תמונה (PNG / JPG)</span>
+            <input type="file" id="imgFile" accept="image/png,image/jpeg,image/webp">
+          </label>
+          <p class="hint">סריקה או צילום ישר של תיקון מוגה. הרקע הבהיר יוסר אוטומטית. הרוחב שתבחרו יחול על המסגרת הכחולה בתצוגה המקדימה, כלומר על קצוות הדיו. המסגרת כוללת גם אותיות שעולות או יורדות (ל, ך, ן, ץ). כדי שהמסגרת תתאים בדיוק לקווי השרטוט, חתכו את התמונה מראש לקווים האלה ובטלו את החיתוך האוטומטי.</p>
+          <label class="f" style="grid-template-columns:auto 1fr;align-items:center;gap:8px;margin-block-start:8px"><input type="checkbox" id="autoTrim" checked style="width:20px;height:20px"><span style="color:var(--ink)">חיתוך אוטומטי של שוליים</span></label>
+          <p class="hash" id="imgHash" hidden></p>
+          <p class="msg err" id="imgErr" hidden></p>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>גודל שטח הכתב (ס"מ)</legend>
+        <div class="seg" role="radiogroup" id="presets">
+          <input type="radio" name="preset" id="p10" value="10"><label for="p10">10</label>
+          <input type="radio" name="preset" id="p12" value="12" checked><label for="p12">12</label>
+          <input type="radio" name="preset" id="p15" value="15"><label for="p15">15</label>
+          <input type="radio" name="preset" id="p20" value="20"><label for="p20">20</label>
+        </div>
+        <div class="row">
+          <label class="f"><span>רוחב</span><input type="number" id="w" min="3" max="60" step="0.1" value="10.5" inputmode="decimal"></label>
+          <label class="f"><span>גובה</span><input type="number" id="h" min="3" max="60" step="0.1" value="10.5" inputmode="decimal"></label>
+        </div>
+        <p class="hint" id="sizeHint">המידות של שטח הכתב בלבד, בלי השוליים של הקלף.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>שורות</legend>
+        <div class="row">
+          <label class="f"><span>מספר שורות</span><input type="number" id="rows" min="1" max="60" step="1" value="22"></label>
+          <label class="f"><span>גובה אות (% מהשורה)</span><input type="number" id="letterPct" min="20" max="90" step="5" value="55"></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>תצוגה</legend>
+        <div class="swatches" role="radiogroup" aria-label="צבע השכבה">
+          <input type="radio" name="color" id="cRed" value="#ff2d55" checked><label for="cRed" style="background:#ff2d55" title="אדום"></label>
+          <input type="radio" name="color" id="cBlue" value="#1f6bff"><label for="cBlue" style="background:#1f6bff" title="כחול"></label>
+          <input type="radio" name="color" id="cGreen" value="#00c26b"><label for="cGreen" style="background:#00c26b" title="ירוק"></label>
+          <input type="radio" name="color" id="cBlack" value="#111111"><label for="cBlack" style="background:#111" title="שחור"></label>
+        </div>
+        <label class="f"><span>אטימות השכבה: <b id="opVal">60%</b></span><input type="range" id="opacity" min="10" max="100" step="5" value="60"></label>
+      </fieldset>
+
+      <button type="button" class="btn btn-primary" id="enterAR" disabled>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-4l-2-3h-2l-2 3H5a2 2 0 0 1-2-2z"/><circle cx="8" cy="11" r="1.5"/><circle cx="16" cy="11" r="1.5"/></svg>
+        <span id="enterLbl">כניסה למצב AR</span>
+      </button>
+      <p class="hint" id="enterHint" aria-live="polite"></p>
+      <p class="msg err" id="arErr" hidden></p>
+    </form>
+
+    <section class="card preview" aria-label="תצוגה מקדימה">
+      <div class="preview-head">
+        <h2>תצוגה מקדימה</h2>
+        <span class="dims">גודל על הקלף: <b id="dimW">10.5</b> × <b id="dimH">10.5</b> ס"מ · <b id="dimRows">22</b> שורות</span>
+      </div>
+      <div class="stage" id="stage"><canvas id="previewCanvas" aria-label="תבנית"></canvas><p class="empty" id="stageEmpty" hidden>בחרו קובץ תמונה כדי לראות את התבנית</p></div>
+      <p class="note"><b>חשוב:</b> זה כלי עזר לפריסה, והוא לא מחליף שרטוט, כתיבה כסדרן או הגהה. לפני שימוש בפועל צריך אישור של פוסק. ודאו שתמונת התיקון מוגהת, וזהו אותה לפי טביעת ה-SHA-256.</p>
+    </section>
+  </div>
+
+  <section class="card steps">
+    <h2>איך עובדים בקסדה</h2>
+    <div class="cols">
+      <ol>
+        <li>מקבעים את הקלף ללוח, ושמים את הלוח על משטח יציב עם תאורה טובה.</li>
+        <li>לוחצים על <b>כניסה למצב AR</b> ומאשרים את ההרשאה.</li>
+        <li>מכוונים את הנקודה הצבעונית בקצה הבקר הימני לכל פינה ולוחצים על ההדק: <b>ימין-עליון</b>, אחר כך <b>שמאל-עליון</b>, ואחר כך <b>שמאל-תחתון</b>.</li>
+        <li>התבנית ננעלת בגודל שנבחר. אם יש פער בין המדידה לגודל שבחרתם, יופיע פער במ"מ ותתבקשו לאשר. מזיזים אותה בעדינות עם הג'ויסטיקים עד שהיא מתיישרת עם קצה השרטוט.</li>
+        <li>עוברים בין שורות עם <kbd>A</kbd> / <kbd>B</kbd>.</li>
+      </ol>
+      <table class="keys">
+        <thead><tr><th>פעולה</th><th>בקר</th></tr></thead>
+        <tbody>
+          <tr><td>סימון פינה בכיול</td><td><kbd>הדק</kbd> (ימני או שמאלי)</td></tr>
+          <tr><td>הזזה עדינה (0.5 מ"מ)</td><td>ג'ויסטיק ימני</td></tr>
+          <tr><td>סיבוב (0.1°) / קירוב למשטח</td><td>ג'ויסטיק שמאלי: ימינה-שמאלה / למעלה-למטה</td></tr>
+          <tr><td>שורה הבאה / קודמת</td><td><kbd>A</kbd> / <kbd>B</kbd></td></tr>
+          <tr><td>מצב: מלא / שורה / מוסתר</td><td><kbd>X</kbd></td></tr>
+          <tr><td>אטימות השכבה</td><td><kbd>Y</kbd></td></tr>
+          <tr><td>איפוס ההזזה העדינה</td><td>לחיצה על הג'ויסטיק הימני</td></tr>
+          <tr><td>כיול מחדש</td><td>שני כפתורי האחיזה, לחיצה ממושכת</td></tr>
+          <tr><td>יציאה</td><td>כפתור ה-Meta</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">גם בלי בקרים: מכוונים את קצה האצבע המורה הימנית לפינה, ומאשרים בצביטה של היד השמאלית. אחרי הנעילה, צביטה של היד השמאלית מעבירה לשורה הבאה, וצביטה ממושכת בשתי הידיים מתחילה כיול מחדש. אם המעקב אבד או שהקסדה אופסה, התבנית מוסתרת עד שהמעקב חוזר או עד כיול מחדש.</p>
+  </section>
+</div>
+<script>/*__APP__*/</script>
+</body>
+</html>
