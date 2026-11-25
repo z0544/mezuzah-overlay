@@ -56,6 +56,8 @@ legend{font-weight:700;font-size:15px;margin-block-end:8px;padding:0}
 .seg label:first-of-type{border-inline-start:0}
 .seg input:checked+label{background:var(--primary);color:var(--primary-ink);font-weight:600}
 .seg input:focus-visible+label{outline:3px solid var(--primary);outline-offset:-3px}
+.m4{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-block:4px 8px}
+.hint.err{color:var(--danger)}
 .row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
 .f{display:grid;gap:4px}
 .f>span{font-size:14px;color:var(--muted)}
@@ -146,7 +148,16 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
       </fieldset>
 
       <fieldset>
-        <legend>גודל שטח הכתב (ס"מ)</legend>
+        <legend>כיול על</legend>
+        <div class="seg" role="radiogroup">
+          <input type="radio" name="cal" id="calKlaf" value="klaf" checked><label for="calKlaf">פינות הקלף</label>
+          <input type="radio" name="cal" id="calBlock" value="block"><label for="calBlock">פינות שטח הכתב</label>
+        </div>
+        <p class="hint">בכיול על פינות הקלף, הטקסט ממוקם בתוך הקלף לפי השוליים שתקבעו.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend id="sizeLegend">גודל הקלף (ס"מ)</legend>
         <div class="seg" role="radiogroup" id="presets">
           <input type="radio" name="preset" id="p10" value="10"><label for="p10">10</label>
           <input type="radio" name="preset" id="p12" value="12" checked><label for="p12">12</label>
@@ -157,15 +168,26 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
           <label class="f"><span>רוחב</span><input type="number" id="w" min="3" max="60" step="0.1" value="10.5" inputmode="decimal"></label>
           <label class="f"><span>גובה</span><input type="number" id="h" min="3" max="60" step="0.1" value="10.5" inputmode="decimal"></label>
         </div>
-        <p class="hint" id="sizeHint">המידות של שטח הכתב בלבד, בלי השוליים של הקלף.</p>
+        <p class="hint" id="sizeHint"></p>
+        <div id="marginBox">
+          <span class="f"><span>שוליים (מ"מ)</span></span>
+          <div class="m4">
+            <label class="f"><span>עליון</span><input type="number" id="mt" min="0" max="30" step="0.5" value="4" inputmode="decimal"></label>
+            <label class="f"><span>ימין (תחילת השורה)</span><input type="number" id="mr" min="0" max="30" step="0.5" value="6" inputmode="decimal"></label>
+            <label class="f"><span>שמאל (סוף השורה)</span><input type="number" id="ml" min="0" max="30" step="0.5" value="3" inputmode="decimal"></label>
+            <label class="f"><span>תחתון</span><input type="number" id="mb" min="0" max="30" step="0.5" value="4" inputmode="decimal"></label>
+          </div>
+          <p class="hint">ברירות מחדל לנוחות בלבד. את מידות השוליים קובעים לפי ההלכה והמנהג, למשל השיור בתחילת המזוזה לגלילה (שו"ע יו"ד רפח).</p>
+        </div>
       </fieldset>
 
       <fieldset>
         <legend>שורות</legend>
         <div class="row">
           <label class="f"><span>מספר שורות</span><input type="number" id="rows" min="1" max="60" step="1" value="22"></label>
-          <label class="f"><span>גובה אות (% מהשורה)</span><input type="number" id="letterPct" min="20" max="90" step="5" value="55"></label>
+          <label class="f"><span>גובה אות (% מהשורה)</span><input type="number" id="letterPct" min="20" max="90" step="1" value="60"></label>
         </div>
+        <p class="hint" id="letterHint" hidden></p>
       </fieldset>
 
       <fieldset>
@@ -190,7 +212,7 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
     <section class="card preview" aria-label="תצוגה מקדימה">
       <div class="preview-head">
         <h2>תצוגה מקדימה</h2>
-        <span class="dims">גודל על הקלף: <b id="dimW">10.5</b> × <b id="dimH">10.5</b> ס"מ · <b id="dimRows">22</b> שורות<span id="dimSqueeze"></span></span>
+        <span class="dims">שטח הכתב: <b id="dimW">10.5</b> × <b id="dimH">10.5</b> ס"מ · <b id="dimRows">22</b> שורות<span id="dimSqueeze"></span></span>
       </div>
       <div class="stage" id="stage"><canvas id="previewCanvas" aria-label="תבנית"></canvas><p class="empty" id="stageEmpty" hidden>בחרו קובץ תמונה כדי לראות את התבנית</p></div>
       <details class="proof" id="textProof">
@@ -210,7 +232,7 @@ kbd{font:600 13px var(--font);background:var(--surface-2);border:1px solid var(-
       <ol>
         <li>מקבעים את הקלף ללוח, ושמים את הלוח על משטח יציב עם תאורה טובה.</li>
         <li>לוחצים על <b>כניסה למצב AR</b> ומאשרים את ההרשאה.</li>
-        <li>מכוונים את הנקודה הצבעונית בקצה הבקר הימני לכל פינה ולוחצים על ההדק: <b>ימין-עליון</b>, אחר כך <b>שמאל-עליון</b>, ואחר כך <b>שמאל-תחתון</b>.</li>
+        <li>מכוונים את הנקודה הצבעונית בקצה הבקר הימני לכל פינה של הקלף (או של שטח הכתב, לפי מה שבחרתם) ולוחצים על ההדק: <b>ימין-עליון</b>, אחר כך <b>שמאל-עליון</b>, ואחר כך <b>שמאל-תחתון</b>.</li>
         <li>התבנית ננעלת בגודל שנבחר. אם יש פער בין המדידה לגודל שבחרתם, יופיע פער במ"מ ותתבקשו לאשר. מזיזים אותה בעדינות עם הג'ויסטיקים עד שהיא מתיישרת עם קצה השרטוט.</li>
         <li>עוברים בין שורות עם <kbd>A</kbd> / <kbd>B</kbd>.</li>
       </ol>

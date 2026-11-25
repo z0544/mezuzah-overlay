@@ -16,14 +16,15 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   const TEX_MAX = 2048;
   const TEXT_SHA256 = 'a74a44b7c1fe7bb6d423ccada6ad47b33de902c7a0641ed88e8854a4304b0db4';
   const FONT_FAMILY = 'StamAshkenazCLM';
-  const textState = { ready: false, error: '', hash: '' };
+  const textState = { ready: false, error: '', hash: '', r: 0 };
 
   // ---------- state ----------
   const S = {
-    tpl: 'grid', w: 10, h: 10, rows: 22, letterPct: 55,
+    tpl: 'grid', w: 10, h: 10, rows: 22, letterPct: 60,
     color: '#ff2d55', opacity: 0.6, autoTrim: true,
     img: null,        // { mask: HTMLCanvasElement, aspect, hash, name }
     mode: 'full', line: 0, bigLetters: false,
+    cal: 'klaf', mt: 4, mb: 4, mr: 6, ml: 3, // calibrate on klaf corners; margins in mm
   };
 
   const $ = (id) => document.getElementById(id);
@@ -39,8 +40,8 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   // ---------- persistence (best effort) ----------
   function save() {
     try {
-      const { tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters } = S;
-      localStorage.setItem(STORE_KEY, JSON.stringify({ tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters }));
+      const { tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters, cal, mt, mb, mr, ml } = S;
+      localStorage.setItem(STORE_KEY, JSON.stringify({ tpl, w, h, rows, letterPct, color, opacity, autoTrim, bigLetters, cal, mt, mb, mr, ml }));
     } catch (_) { /* storage unavailable */ }
   }
   function load() {
@@ -53,22 +54,40 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       S.opacity = num(v.opacity, 0.1, 1, S.opacity);
       if (/^#[0-9a-f]{6}$/i.test(v.color)) S.color = v.color;
       S.autoTrim = v.autoTrim !== false; S.bigLetters = v.bigLetters === true;
+      if (v.cal === 'block') S.cal = 'block';
+      S.mt = num(v.mt, 0, 30, S.mt); S.mb = num(v.mb, 0, 30, S.mb); S.mr = num(v.mr, 0, 30, S.mr); S.ml = num(v.ml, 0, 30, S.ml);
       if (v.tpl === 'text') S.tpl = 'text'; // image is not persisted
     } catch (_) { /* ignore */ }
   }
 
   // ---------- geometry of rows (STaM: block top = first sirtut line, bottom = bottom of last row) ----------
   function rowGeom(Hpx) {
-    const p = S.letterPct / 100;
+    const p = S.tpl === 'text' ? textSize().p : S.letterPct / 100;
     const rows = S.tpl === 'text' ? TEXT.lines.length : S.rows;
     const step = Hpx / ((rows - 1) + p);
     return { step, letter: step * p };
   }
 
   function rowCount() { return S.tpl === 'text' ? TEXT.lines.length : S.rows; }
-  function heightCm() {
-    if (S.tpl === 'image' && S.img) return +(S.w * S.img.aspect).toFixed(2);
-    return S.h;
+  // S.w/S.h are the size of the calibrated rectangle: the klaf (cal=klaf) or the writing block (cal=block)
+  const onKlaf = () => S.cal === 'klaf';
+  const r2 = (v) => +v.toFixed(2);
+  function blockW() { return r2(onKlaf() ? S.w - (S.mr + S.ml) / 10 : S.w); }
+  function heightCm() { // writing-block height
+    if (S.tpl === 'image' && S.img) return r2(blockW() * S.img.aspect);
+    return r2(onKlaf() ? S.h - (S.mt + S.mb) / 10 : S.h);
+  }
+  function outerW() { return S.w; }
+  function outerH() { return S.tpl === 'image' && S.img ? r2(heightCm() + (onKlaf() ? (S.mt + S.mb) / 10 : 0)) : S.h; }
+  function blockOffset() { return onKlaf() ? { x: -S.mr / 1000, y: -S.mt / 1000 } : { x: 0, y: 0 }; } // meters, from top-right corner
+  // text mode: letter size follows the width (longest line flush with one-yod spacing); returns p = letter/line-step
+  // text mode: letter height comes from the rows (גובה אות %), letter width is scaled so the longest
+  // line reaches the edge with one-yod spacing (STaM letters are wider than the font's)
+  function textSize() {
+    const p = S.letterPct / 100, n = TEXT.lines.length - 1;
+    const body = p * heightCm() / (n + p); // cm
+    const k = textState.r ? body / (textState.r * blockW()) : 1; // r = body/widest at k=1
+    return { p, mm: body * 10, k, kc: Math.min(1.8, Math.max(0.6, k)) };
   }
 
   // ---------- template drawing (shared by preview and XR texture) ----------
@@ -150,11 +169,55 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   }
 
   // ---------- mezuzah text (STaM font) ----------
-  // Layout: letters hang from the sirtut line; lines are justified by word spacing,
-  // line 7 opens with a setumah indent of ~9 letters, line 6 and line 22 are not stretched.
+  // STaM layout rules implemented here:
+  //  * letters hang from the sirtut line;
+  //  * the space between words is exactly one yod;
+  //  * every line reaches the left edge exactly (nothing past the margin); the line is filled only by
+  //    widening the dilatable letters א ה ל ת ם, nearest the end of the line first, at most ×2 each;
+  //  * setumah (common custom): line 6 ends ~3 letters short, line 7 opens with a 9-letter space;
+  //  * line 22 holds only "על הארץ", at its start.
+  const DILATABLE = new Set(['א', 'ה', 'ל', 'ת', 'ם']);
+  const MAX_DILATE = 1.8;
   const maskCache = { key: '', c: null };
+  function layoutText(x, Wpx, sxIn) {
+    const yod = x.measureText('י').width;
+    const avg = x.measureText('אבגדהוזחטיכלמנסעפצקרשת').width / 22;
+    const BIG = 1.5;
+    const SETUMAH = 6, LAST = TEXT.lines.length - 1;
+    const isBig = (i, k) => S.bigLetters && i === 0 && (k === 0 || k === 5);
+    const cw = {}; const W = (ch) => (cw[ch] ??= x.measureText(ch).width);
+    // char boxes per line: {ch, w, big}
+    const lines = TEXT.lines.map((ws, i) => ws.map((w, k) => [...w].map((ch, ci, arr) => ({ ch, w: W(ch) * (isBig(i, k) && ci === arr.length - 1 ? BIG : 1), big: isBig(i, k) && ci === arr.length - 1, f: 1 }))));
+    const natural = lines.map((ws, i) => ws.reduce((a, cs) => a + cs.reduce((b, c) => b + c.w, 0), 0) + (ws.length - 1) * yod + (i === SETUMAH ? 9 * avg : 0));
+    const sx = sxIn ?? Math.min(1.8, Math.max(0.6, Wpx / Math.max(...natural.filter((_, i) => i !== LAST))));
+    const report = [];
+    lines.forEach((ws, i) => {
+      if (i === LAST) { report.push(0); return; }
+      const target = (i === SETUMAH - 1 ? Wpx - 3 * avg * sx : Wpx - (i === SETUMAH ? 9 * avg * sx : 0));
+      const chars = ws.reduce((a, cs) => a + cs.reduce((b, c) => b + c.w, 0), 0) * sx;
+      let R = target - natural[i] * sx + (i === SETUMAH ? 9 * avg * sx : 0);
+      // a scribe writes a short line slightly wider: up to +8% on all letters, then dilates אהלת"ם
+      if (R > 0.5) { const u = Math.min(1.08, 1 + R / chars); ws.forEach((cs) => cs.forEach((c) => { c.u = u; })); R -= chars * (u - 1); }
+      // candidates nearest the end of the line first
+      const cand = [];
+      for (let k = ws.length - 1; k >= 0; k--) for (let ci = ws[k].length - 1; ci >= 0; ci--) if (DILATABLE.has(ws[k][ci].ch) && !ws[k][ci].big) cand.push(ws[k][ci]);
+      if (R > 0.5 && cand.length) {
+        let done = false;
+        for (let n = 1; n <= cand.length && !done; n++) {
+          const share = R / n;
+          if (cand.slice(0, n).every((c) => c.w * sx * (c.u || 1) * (MAX_DILATE - 1) >= share)) {
+            cand.slice(0, n).forEach((c) => { c.f = 1 + share / (c.w * sx * (c.u || 1)); }); R = 0; done = true;
+          }
+        }
+        if (!done) { cand.forEach((c) => { c.f = MAX_DILATE; R -= c.w * sx * (c.u || 1) * (MAX_DILATE - 1); }); }
+      }
+      report.push(Math.max(0, R));
+    });
+    return { lines, sx, yod, avg, SETUMAH, LAST, report };
+  }
+
   function textMask(Wpx, Hpx) {
-    const key = [Wpx, Hpx, S.letterPct, S.bigLetters].join('|');
+    const key = [Wpx, Hpx, rowGeom(Hpx).letter.toFixed(3), S.bigLetters].join('|');
     if (maskCache.key === key) return maskCache.c;
     const c = document.createElement('canvas'); c.width = Wpx; c.height = Hpx;
     const x = c.getContext('2d');
@@ -163,54 +226,24 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     x.font = font(100);
     const mh = x.measureText('ה');
     const body = (mh.actualBoundingBoxAscent + mh.actualBoundingBoxDescent) || 70;
-    const px = 100 * letter / body;
-    x.font = font(px); x.direction = 'rtl'; x.textAlign = 'right'; x.textBaseline = 'alphabetic'; x.fillStyle = '#fff';
+    x.font = font(100 * letter / body); x.direction = 'rtl'; x.textAlign = 'right'; x.textBaseline = 'alphabetic'; x.fillStyle = '#fff';
     const asc = x.measureText('ה').actualBoundingBoxAscent;
-    const yod = x.measureText('י').width;
-    const avg = x.measureText('אבגדהוזחטיכלמנסעפצקרשת').width / 22;
-    const indent = 9 * avg;
-    const BIG = 1.5;
-    const isBig = (i, k) => S.bigLetters && i === 0 && (k === 0 || k === 5); // ע of שמע, ד of אחד
-    const widths = TEXT.lines.map((l, i) => l.map((w, k) => isBig(i, k)
-      ? x.measureText(w.slice(0, -1)).width + x.measureText(w.slice(-1)).width * BIG
-      : x.measureText(w).width));
-    const SETUMAH = 6, LAST = TEXT.lines.length - 1; // 0-based: line 7 indent, line 22 short
-    const natural = widths.map((ws, i) => ws.reduce((a, b) => a + b, 0) + (ws.length - 1) * yod + (i === SETUMAH ? indent : 0));
-    const widest = Math.max(...natural.filter((_, i) => i !== LAST));
-    const sx = Math.min(1, Wpx / widest); // squeeze only when the block is too narrow
-    // Setumah (common custom): line 6 ends at most ~3 letters short, line 7 opens with a 9-letter indent.
-    // Lines are filled first by word spacing (yod … 1.6 letters), then by widening the letters.
-    const gapMin = yod * sx, gapMax = 1.6 * avg * sx;
-    TEXT.lines.forEach((ws, i) => {
-      const n = ws.length - 1;
-      const wsum = widths[i].reduce((a, b) => a + b, 0) * sx;
-      const ind = i === SETUMAH ? indent * sx : 0;
-      let gap = gapMin, stretch = 1;
-      if (i !== LAST && n > 0) {
-        const target = i === SETUMAH - 1 ? Wpx - 3 * avg * sx : Wpx - ind;
-        const free = target - wsum - gapMin * n;
-        if (free > 0) {
-          gap = Math.min(gapMax, gapMin + free / n);
-          const left = target - wsum - gap * n;
-          stretch = Math.min(1.6, 1 + left / wsum);
-          gap += (target - wsum * stretch - gap * n) / n; // any remainder goes back into spacing
-        }
-      }
-      let xr = Wpx - ind;
+    const L = layoutText(x, Wpx);
+    L.lines.forEach((ws, i) => {
+      let xr = Wpx - (i === L.SETUMAH ? 9 * L.avg * L.sx : 0);
       const base = i * step + asc;
-      const k2 = sx * stretch;
-      ws.forEach((w, k) => {
-        x.save(); x.translate(xr, base); x.scale(k2, 1);
-        if (isBig(i, k)) {
-          const pre = w.slice(0, -1), last = w.slice(-1);
-          x.fillText(pre, 0, 0);
-          x.translate(-x.measureText(pre).width, -asc); x.scale(BIG, BIG); x.translate(0, asc); x.fillText(last, 0, 0); // hangs from the sirtut line
-        } else x.fillText(w, 0, 0);
-        x.restore();
-        xr -= widths[i][k] * k2 + gap;
+      ws.forEach((cs, k) => {
+        for (const ch of cs) {
+          x.save(); x.translate(xr, base);
+          if (ch.big) { x.translate(0, -asc); x.scale(L.sx * 1.5, 1.5); x.translate(0, asc); }
+          else x.scale(L.sx * (ch.u || 1) * ch.f, 1);
+          x.fillText(ch.ch, 0, 0); x.restore();
+          xr -= ch.w * L.sx * (ch.u || 1) * ch.f;
+        }
+        if (k < ws.length - 1) xr -= L.yod * L.sx;
       });
     });
-    Object.assign(maskCache, { key, c, sx });
+    Object.assign(maskCache, { key, c, sx: L.sx, gaps: L.report });
     return c;
   }
 
@@ -224,6 +257,13 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       textState.hash = h || '';
       const ff = new FontFace(FONT_FAMILY, `url(${stamFontUrl})`);
       await ff.load(); document.fonts.add(ff);
+      const m = document.createElement('canvas').getContext('2d');
+      m.font = `100px "${FONT_FAMILY}"`;
+      const mh = m.measureText('ה');
+      const body = (mh.actualBoundingBoxAscent + mh.actualBoundingBoxDescent) || 70;
+      const L = layoutText(m, 1e9, 1);
+      const nat = L.lines.map((ws, i) => ws.reduce((a, cs) => a + cs.reduce((b, c) => b + c.w, 0), 0) + (ws.length - 1) * L.yod + (i === L.SETUMAH ? 9 * L.avg : 0));
+      textState.r = body / Math.max(...nat.filter((_, i) => i !== L.LAST));
       textState.ready = true;
     } catch (e) {
       textState.error = (e && e.message) || 'טעינת הטקסט נכשלה';
@@ -296,25 +336,52 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   }
 
   // ---------- 2D UI ----------
+  const marginEls = () => ['mt', 'mb', 'mr', 'ml'].map((id) => $(id));
   function syncUI() {
-    invalid.clear(); for (const el of [ui.w, ui.h, ui.rows, ui.letterPct]) { el.style.borderColor = ''; el.setAttribute('aria-invalid', 'false'); }
-    ui.w.value = S.w; ui.rows.value = S.rows; ui.letterPct.value = S.letterPct;
+    invalid.clear(); for (const el of [ui.w, ui.h, ui.rows, ui.letterPct, ...marginEls()]) { el.style.borderColor = ''; el.setAttribute('aria-invalid', 'false'); }
+    ui.w.value = S.w; ui.h.value = S.h; ui.rows.value = S.rows; ui.letterPct.value = S.letterPct;
+    marginEls().forEach((el) => { el.value = S[el.id]; });
     ui.opacity.value = Math.round(S.opacity * 100); ui.opVal.textContent = Math.round(S.opacity * 100) + '%';
     ui.autoTrim.checked = S.autoTrim; $('bigLetters').checked = S.bigLetters;
     document.querySelector(`input[name=tpl][value=${S.tpl}]`).checked = true;
+    document.querySelector(`input[name=cal][value=${S.cal}]`).checked = true;
     const col = document.querySelector(`input[name=color][value="${S.color}"]`); if (col) col.checked = true;
-    document.querySelectorAll('input[name=preset]').forEach((r) => { r.checked = +r.value === S.w; });
     ui.imgBox.hidden = S.tpl !== 'image';
     $('textBox').hidden = S.tpl !== 'text';
+    $('marginBox').hidden = !onKlaf();
+    $('sizeLegend').textContent = onKlaf() ? 'גודל הקלף (ס"מ)' : 'גודל שטח הכתב (ס"מ)';
     ui.rows.disabled = S.tpl === 'text';
     if (S.tpl === 'text') ui.rows.value = TEXT.lines.length;
-    const imgMode = S.tpl === 'image';
-    ui.h.disabled = imgMode;
-    ui.h.value = heightCm();
-    ui.sizeHint.textContent = imgMode
-      ? 'הגובה מחושב לפי היחס בתמונה. קובעים רק את הרוחב.'
-      : 'המידות של שטח הכתב בלבד, בלי השוליים של הקלף.';
-    ui.dimW.textContent = S.w; ui.dimH.textContent = heightCm(); ui.dimRows.textContent = rowCount();
+    refreshDerived();
+  }
+
+  // values that follow from the inputs; never overwrites the field being typed in
+  function refreshDerived(typing) {
+    const imgMode = S.tpl === 'image' && S.img, txt = S.tpl === 'text';
+    ui.h.disabled = !!imgMode;
+    if (imgMode && typing !== ui.h) ui.h.value = outerH();
+    document.querySelectorAll('input[name=preset]').forEach((r) => { r.checked = +r.value === S.w; });
+    ui.letterPct.disabled = false;
+    const ts = txt ? textSize() : null;
+    const bw = blockW(), bh = heightCm();
+    const tooSmall = bw < 2 || bh < 2;
+    if (tooSmall) invalid.add('block'); else invalid.delete('block');
+    const parts = [];
+    if (onKlaf()) parts.push(`שטח הכתב: ${bw} × ${bh} ס"מ.`);
+    if (imgMode) parts.push('הגובה מחושב לפי היחס בתמונה. קובעים רק את הרוחב.');
+    if (tooSmall) parts.push('השוליים גדולים מדי לקלף הזה.');
+    if (!onKlaf() && !imgMode) parts.push('המידות של שטח הכתב בלבד, בלי השוליים.');
+    ui.sizeHint.textContent = parts.join(' ');
+    ui.sizeHint.classList.toggle('err', tooSmall);
+    const lh = $('letterHint');
+    if (txt && ts.mm) {
+      lh.hidden = false;
+      const bad = ts.k !== ts.kc;
+      lh.textContent = `גובה אות: ${ts.mm.toFixed(1)} מ"מ · רוחב האותיות: ${Math.round(ts.k * 100)}% מהגופן. הרוחב נקבע כך שהשורה הארוכה מגיעה לקצה כשבין המילים רווח של י'.`
+        + (bad ? (ts.k > ts.kc ? ' השטח רחב מדי ביחס לגובה האות. הגדילו את גובה האות או הקטינו את הרוחב.' : ' השטח צר מדי ביחס לגובה האות. הקטינו את גובה האות או הגדילו את הרוחב.') : '');
+      lh.classList.toggle('err', bad);
+    } else lh.hidden = true;
+    ui.dimW.textContent = bw; ui.dimH.textContent = bh; ui.dimRows.textContent = rowCount();
     updateEnter();
     renderPreview();
   }
@@ -326,16 +393,26 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     ui.stageEmpty.hidden = !(noImg || noText); ui.canvas.hidden = noImg || noText;
     ui.stageEmpty.textContent = noImg ? 'בחרו קובץ תמונה כדי לראות את התבנית'
       : textState.error ? 'הטקסט לא נטען: ' + textState.error : 'טוען גופן…';
-    if (noImg || noText) return;
-    const H = heightCm();
-    const Wpx = S.tpl === 'text' ? 1400 : 900, Hpx = Math.round(Wpx * H / S.w);
-    ui.canvas.width = Wpx; ui.canvas.height = Hpx;
+    if (noImg || noText || invalid.has('block')) return;
+    const OW = outerW(), OH = outerH(), BW = blockW(), BH = heightCm();
+    const ppc = (S.tpl === 'text' ? 1400 : 900) / OW; // px per cm
+    ui.canvas.width = Math.round(OW * ppc); ui.canvas.height = Math.round(OH * ppc);
     const pctx = ui.canvas.getContext('2d');
-    drawTemplate(pctx, Wpx, Hpx, { mode: 'full' });
+    const ox = onKlaf() ? Math.round((OW - BW - S.mr / 10) * ppc) : 0, oy = onKlaf() ? Math.round(S.mt / 10 * ppc) : 0;
+    const Wpx = Math.round(BW * ppc), Hpx = Math.round(BH * ppc);
+    if (onKlaf()) { // the klaf itself, with its margins
+      pctx.fillStyle = 'rgba(160,120,60,0.10)'; pctx.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
+      pctx.strokeStyle = '#8a6a3a'; pctx.lineWidth = 3; pctx.strokeRect(1.5, 1.5, ui.canvas.width - 3, ui.canvas.height - 3);
+    }
+    const tmp = document.createElement('canvas'); tmp.width = Wpx; tmp.height = Hpx;
+    drawTemplate(tmp.getContext('2d'), Wpx, Hpx, { mode: 'full' });
+    pctx.drawImage(tmp, ox, oy);
+    if (S.tpl === 'image' || onKlaf()) { pctx.strokeStyle = '#1d4ed8'; pctx.lineWidth = 2; pctx.setLineDash([8, 6]); pctx.strokeRect(ox + 1, oy + 1, Wpx - 2, Hpx - 2); pctx.setLineDash([]); }
     const sq = $('dimSqueeze');
-    if (S.tpl === 'text' && maskCache.sx && maskCache.sx < 0.995) sq.textContent = ` · רוחב אותיות ${Math.round(maskCache.sx * 100)}% (הגדילו את הרוחב או הקטינו את הגובה)`;
-    else sq.textContent = '';
-    if (S.tpl === 'image') { pctx.strokeStyle = '#1d4ed8'; pctx.lineWidth = 2; pctx.setLineDash([8, 6]); pctx.strokeRect(1, 1, Wpx - 2, Hpx - 2); pctx.setLineDash([]); }
+    if (S.tpl === 'text') {
+      const short = (maskCache.gaps || []).filter((g) => g > Wpx * 0.004).length;
+      sq.textContent = short ? ` · ${short} שורות לא מגיעות לקצה` : '';
+    }
   }
 
   const invalid = new Set();
@@ -352,25 +429,22 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   ui.form.addEventListener('input', async (e) => {
     const t = e.target;
     if (t.name === 'tpl') { S.tpl = t.value; }
-    else if (t.name === 'preset') { S.w = +t.value; if (S.tpl === 'grid') S.h = +t.value; }
+    else if (t.name === 'cal') { S.cal = t.value; }
+    else if (t.name === 'preset') { S.w = +t.value; if (S.tpl !== 'image') S.h = +t.value; }
     else if (t.name === 'color') { S.color = t.value; }
     else if (t === ui.w) { S.w = readNum(ui.w, 3, 60, S.w); }
     else if (t === ui.h) { S.h = readNum(ui.h, 3, 60, S.h); }
     else if (t === ui.rows) { S.rows = Math.round(readNum(ui.rows, 1, 60, S.rows)); }
     else if (t === ui.letterPct) { S.letterPct = readNum(ui.letterPct, 20, 90, S.letterPct); }
+    else if (['mt', 'mb', 'mr', 'ml'].includes(t.id)) { S[t.id] = readNum(t, 0, 30, S[t.id]); }
     else if (t === ui.opacity) { S.opacity = +ui.opacity.value / 100; }
     else if (t === ui.autoTrim) { S.autoTrim = ui.autoTrim.checked; }
     else if (t.id === 'bigLetters') { S.bigLetters = t.checked; }
     else return;
     save();
-    // keep typed value in the field while typing
-    if (t === ui.w || t === ui.h || t === ui.rows || t === ui.letterPct) {
-      document.querySelectorAll('input[name=preset]').forEach((r) => { r.checked = +r.value === S.w; });
-      ui.h.value = t === ui.h ? ui.h.value : heightCm();
-      ui.dimW.textContent = S.w; ui.dimH.textContent = heightCm(); ui.dimRows.textContent = rowCount();
-      renderPreview(); updateEnter();
-      return;
-    }
+    if (t.type === 'number') { refreshDerived(t); return; } // keep what is being typed
+    if (t.name === 'preset') ui.h.value = S.h;
+    if (t.name === 'preset') ui.w.value = S.w;
     syncUI();
   });
 
@@ -410,6 +484,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
 
   // ---------- XR scene ----------
   let renderer, scene, camera, session = null, refSpace = null;
+  let outline = null;
   let root, adjust, mesh, tex, texCanvas, labels, labelTex, labelCanvas, panel, panelTex, panelCanvas;
   const cursors = new Map(); // inputSource -> mesh
   const calib = { step: 0, pts: [], markers: [], msg: '' };
@@ -419,8 +494,8 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   const sgn = (v, pos, neg, d = 1) => { const a = Math.abs(v).toFixed(d); return +a === 0 ? (0).toFixed(d) : `${a} ${v > 0 ? pos : neg}`; };
   function sizeGap() {
     if (!lock.measured) return null;
-    const dw = (lock.measured.mw - S.w) * 10, dh = (lock.measured.mh - heightCm()) * 10; // mm
-    const tolW = Math.max(2.5, S.w * 10 * 0.02), tolH = Math.max(2.5, heightCm() * 10 * 0.02);
+    const dw = (lock.measured.mw - outerW()) * 10, dh = (lock.measured.mh - outerH()) * 10; // mm
+    const tolW = Math.max(2.5, outerW() * 10 * 0.02), tolH = Math.max(2.5, outerH() * 10 * 0.02);
     return { dw, dh, warn: Math.abs(dw) > tolW || Math.abs(dh) > tolH };
   }
   const adj = { dx: 0, dy: 0, dz: 0, rot: 0 };
@@ -457,17 +532,24 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
   }
 
   function buildBlock() {
-    const W = S.w / 100, H = heightCm() / 100;
+    const W = blockW() / 100, H = heightCm() / 100, off = blockOffset();
+    if (outline) { adjust.remove(outline); outline.geometry.dispose(); outline.material.dispose(); outline = null; }
+    if (onKlaf()) {
+      const OW = outerW() / 100, OH = outerH() / 100;
+      const g = new THREE.BufferGeometry().setFromPoints([[0, 0], [-OW, 0], [-OW, -OH], [0, -OH]].map(([a, b]) => new THREE.Vector3(a, b, 0)));
+      outline = new THREE.LineLoop(g, new THREE.LineBasicMaterial({ color: new THREE.Color(S.color), transparent: true, opacity: 0.45, depthWrite: false }));
+      outline.renderOrder = 1; adjust.add(outline);
+    }
     if (mesh) { adjust.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); tex.dispose(); }
     if (labels) { adjust.remove(labels); labels.geometry.dispose(); labels.material.dispose(); labelTex.dispose(); }
     const cw = Math.round(Math.min(TEX_MAX, TEX_MAX * W / H)), ch = Math.round(cw * H / W);
     const b = makeCanvasPlane(W, H, cw, ch);
     texCanvas = b.c; tex = b.t; mesh = b.m; mesh.material.opacity = S.opacity; mesh.renderOrder = 2;
-    mesh.position.set(-W / 2, -H / 2, 0); // block top-right corner at adjust origin
+    mesh.position.set(off.x - W / 2, off.y - H / 2, 0); // block top-right corner = calibrated corner + margins
     adjust.add(mesh);
     const lb = makeCanvasPlane(0.012, H, 96, Math.min(4096, Math.round(96 * H / 0.012)));
     labelCanvas = lb.c; labelTex = lb.t; labels = lb.m; labels.renderOrder = 2;
-    labels.position.set(0.008, -H / 2, 0);
+    labels.position.set(off.x + 0.008, off.y - H / 2, 0);
     adjust.add(labels);
     redrawBlock();
   }
@@ -477,6 +559,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
     drawTemplate(texCanvas.getContext('2d'), texCanvas.width, texCanvas.height, { mode: S.mode, line: S.line });
     tex.needsUpdate = true;
     mesh.material.opacity = S.opacity;
+    if (outline) outline.material.color.set(S.color);
     // row numbers
     const x = labelCanvas.getContext('2d'); const Hp = labelCanvas.height, Wp = labelCanvas.width;
     x.clearRect(0, 0, Wp, Hp);
@@ -519,7 +602,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       const names = ['ימנית-עליונה', 'שמאלית-עליונה', 'שמאלית-תחתונה'];
       lines.push(['#9ec1ff', 700, 50, `כיול · שלב ${calib.step + 1} מתוך 3`]);
       lines.push(['#ffffff', 600, 42, `כוונו את הנקודה לפינה ה${names[calib.step]}`]);
-      lines.push(['#ffffff', 400, 36, 'של שטח הכתב, ולחצו על ההדק (או צביטה ביד שמאל).']);
+      lines.push(['#ffffff', 400, 36, (onKlaf() ? 'של הקלף' : 'של שטח הכתב') + ', ולחצו על ההדק (או צביטה ביד שמאל).']);
       if (calib.msg) lines.push(['#ffd27a', 600, 34, calib.msg]);
       else lines.push(['#c8c8c8', 400, 28, 'כלי עזר בלבד: שרטוט, כתיבה כסדרן והגהה – חובה.']);
     } else {
@@ -742,7 +825,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
 
     // panel placement
     if (lock.locked && !trackingLost) {
-      const W = S.w / 100;
+      const W = outerW() / 100;
       _target.set(-W / 2, 0.035, 0.002).applyMatrix4(adjust.matrixWorld);
       panel.position.copy(_target);
       panel.quaternion.setFromRotationMatrix(adjust.matrixWorld);
@@ -806,7 +889,7 @@ import stamFontUrl from './fonts/StamAshkenazCLM.ttf';
       const r2 = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
       r2.setSize(700, 700); r2.setClearColor(0xf4ecd8, 1);
       scene.updateMatrixWorld(true);
-      const c = new THREE.Vector3(-S.w / 200, -heightCm() / 200, 0).applyMatrix4(adjust.matrixWorld);
+      const c = new THREE.Vector3(-outerW() / 200, -outerH() / 200, 0).applyMatrix4(adjust.matrixWorld);
       const n = new THREE.Vector3().setFromMatrixColumn(adjust.matrixWorld, 2).normalize();
       const up = new THREE.Vector3().setFromMatrixColumn(adjust.matrixWorld, 1).normalize();
       const cam = new THREE.PerspectiveCamera(40, 1, 0.01, 5);

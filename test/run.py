@@ -44,6 +44,12 @@ with sync_playwright() as p:
     check('text hash matches', tx['hash'] == 'a74a44b7c1fe7bb6d423ccada6ad47b33de902c7a0641ed88e8854a4304b0db4', tx['hash'])
     check('proof list has 22 lines', pg.locator('#proofLines li').count() == 22)
     check('rows locked to 22 in text mode', pg.is_disabled('#rows') and pg.input_value('#rows') == '22')
+    check('letter hint shown', 'גובה אות' in (pg.text_content('#letterHint') or ''), pg.text_content('#letterHint'))
+    pg.fill('#ml', '40'); pg.wait_for_timeout(50)
+    check('invalid margin flagged', pg.get_attribute('#ml', 'aria-invalid') == 'true')
+    pg.fill('#ml', '3'); pg.fill('#mr', '29'); pg.fill('#ml', '29'); pg.fill('#w', '5'); pg.wait_for_timeout(100)
+    check('margins too large flagged', 'גדולים מדי' in pg.text_content('#sizeHint'), pg.text_content('#sizeHint'))
+    pg.fill('#mr', '6'); pg.fill('#ml', '3'); pg.fill('#w', '10'); pg.wait_for_timeout(100)
     check('no page errors text', not errs, '; '.join(errs))
     pg.click('#textProof summary')
     pg.screenshot(path=f'{OUT}/ui-text.png', full_page=True)
@@ -66,8 +72,10 @@ with sync_playwright() as p:
     hash_txt = pg.text_content('#imgHash') or ''
     check('hash shown', hash_txt.startswith('SHA-256: ') and len(hash_txt) > 70, hash_txt[:40])
     hval = float(pg.input_value('#h'))
-    # synthetic block after trim: width 870, height 21*36+20=776 -> aspect .892 -> 10cm * .892
-    check('aspect-derived height', abs(hval - 8.92) < 0.05, str(hval))
+    # klaf mode (default): block width = 10 - (6+3)/10 = 9.1cm; aspect 776/870; klaf height = block + 0.8cm margins
+    exp = round(round(9.1 * 776 / 870, 2) + 0.8, 2)
+    check('aspect-derived klaf height', abs(hval - exp) < 0.02, f'{hval} vs {exp}')
+    check('block dims shown', pg.text_content('#dimW') == '9.1', pg.text_content('#dimW'))
     pg.screenshot(path=f'{OUT}/ui-image.png', full_page=True)
     pg.close()
 
