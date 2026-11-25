@@ -17,7 +17,7 @@ def check(name, cond, info=''):
     if not cond: fails.append(name)
 
 with sync_playwright() as p:
-    b = p.chromium.launch(executable_path='/usr/bin/google-chrome', args=['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
+    b = p.chromium.launch(executable_path=os.environ.get('CHROME') or None, args=['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
     # --- 2D without XR: preview only ---
     for w, h, name in [(1440, 900, 'desktop'), (360, 780, 'mobile')]:
         pg = b.new_page(viewport={'width': w, 'height': h})

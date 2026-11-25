@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "node build.mjs && python3 test/run.py"
+    "test": "node build.mjs && esbuild test/iwer-entry.js --bundle --format=iife --outfile=test/out/iwer.js --log-level=warning && python3 test/run.py"
   },
   "keywords": [],
   "author": "",
